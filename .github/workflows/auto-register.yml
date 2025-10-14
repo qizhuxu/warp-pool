@@ -136,7 +136,7 @@ jobs:
           
           # 使用批量注册脚本，每次增加 5 个账号
           echo "🚀 开始批量注册（目标增加 5 个账号）..."
-          xvfb-run -a python batch_register.py --add 5 --headless true --max-fails 5 2>&1 | tee registration.log
+          xvfb-run -a python batch_register.py --add 10 --headless true --max-fails 5 2>&1 | tee registration.log
           
           # 保存退出码
           EXIT_CODE=${PIPESTATUS[0]}
