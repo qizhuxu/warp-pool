@@ -167,9 +167,9 @@ jobs:
           OLD_COUNT="${{ steps.download.outputs.old_count }}"
           echo "📊 已有账号数: $OLD_COUNT"
           
-          # 使用批量注册脚本，每次增加 5 个账号
-          echo "🚀 开始批量注册（目标增加 5 个账号）..."
-          xvfb-run -a python batch_register.py --add 5 --headless true --max-fails 5 2>&1 | tee registration.log
+          # 使用批量注册脚本，每次增加 6 个账号
+          echo "🚀 开始批量注册（目标增加 6 个账号）..."
+          xvfb-run -a python batch_register.py --add 6 --headless true --max-fails 6 2>&1 | tee registration.log
           
           # 保存退出码
           EXIT_CODE=${PIPESTATUS[0]}
