@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+ENV/
+
+# 项目特定
+accounts/
+logs/
+*.db
+*.sqlite
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 文档
+*.md
+docs/
+README.md
+LICENSE
+
+# 测试
+tests/
+test_*.py
+*_test.py
+
+# 环境变量（会通过 docker-compose 传入）
+.env
+.env.local
+.env.*.local
+
+# 临时文件
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

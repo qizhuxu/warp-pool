@@ -1,0 +1,60 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment variables and secrets
+.env
+.env.*
+*.env
+
+# Pytest / caches
+.pytest_cache/
+.cache/
+.mypy_cache/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and databases
+*.log
+*.sqlite3
+
+# Accounts and other sensitive data
+accounts/
+
+# Local config and secrets
+config.py
+config.local.py
+
+# Keys and certificates
+*.pem
+*.key
+
+# Docker
+docker-compose.override.yml
+
+# Misc
+*.bak
+*.swp

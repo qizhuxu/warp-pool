@@ -1,0 +1,5 @@
+undetected-chromedriver>=3.5.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+setuptools>=65.0.0
+psutil>=5.9.0
