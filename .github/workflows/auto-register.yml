@@ -138,9 +138,9 @@ jobs:
             
             git commit -m "🤖 Auto-register: New account $EMAIL
 
-📊 Total accounts: $TOTAL_COUNT
-⏰ Time: $(date -u '+%Y-%m-%d %H:%M:%S') UTC
-🔗 Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            📊 Total accounts: $TOTAL_COUNT
+            ⏰ Time: $(date -u '+%Y-%m-%d %H:%M:%S') UTC
+            🔗 Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             
             git push
             echo "✅ 账号文件已提交"
