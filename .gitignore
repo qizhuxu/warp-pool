@@ -45,7 +45,6 @@ Thumbs.db
 accounts/
 
 # Local config and secrets
-config.py
 config.local.py
 
 # Keys and certificates
