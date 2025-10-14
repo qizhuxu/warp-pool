@@ -1,0 +1,209 @@
+name: Auto Register Warp Account
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'  # 每2小时执行一次
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Randomize Machine ID
+        run: |
+          echo "=== 修改机器码 ==="
+          
+          # 1. 生成随机的 machine-id（使用 openssl 更可靠）
+          RANDOM_MACHINE_ID=$(openssl rand -hex 16)
+          echo "新的 machine-id: $RANDOM_MACHINE_ID"
+          
+          # 修改 /etc/machine-id
+          echo "$RANDOM_MACHINE_ID" | sudo tee /etc/machine-id > /dev/null
+          
+          # 修改 /var/lib/dbus/machine-id（如果存在）
+          if [ -f /var/lib/dbus/machine-id ]; then
+            echo "$RANDOM_MACHINE_ID" | sudo tee /var/lib/dbus/machine-id > /dev/null
+          fi
+          
+          # 2. 生成随机的 hostname
+          RANDOM_SUFFIX=$(openssl rand -hex 4)
+          RANDOM_HOSTNAME="gh-runner-${RANDOM_SUFFIX}"
+          echo "新的 hostname: $RANDOM_HOSTNAME"
+          sudo hostname "$RANDOM_HOSTNAME"
+          echo "$RANDOM_HOSTNAME" | sudo tee /etc/hostname > /dev/null
+          
+          # 3. 清理可能缓存机器信息的文件
+          sudo rm -rf /var/lib/systemd/random-seed 2>/dev/null || true
+          rm -rf ~/.cache/* 2>/dev/null || true
+          
+          # 验证修改
+          echo "=== 验证机器码 ==="
+          echo "machine-id: $(cat /etc/machine-id)"
+          echo "hostname: $(hostname)"
+          
+          echo "✅ 机器码修改完成"
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget xvfb jq
+          
+          # 完全卸载旧版本 Chrome 和 Chromium
+          sudo apt-get remove -y google-chrome-stable chromium-browser chromium || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          
+          # 清理可能残留的 Chrome 文件
+          sudo rm -rf /opt/google/chrome || true
+          sudo rm -rf ~/.config/google-chrome || true
+          
+          # 安装最新版 Chrome
+          wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo dpkg -i google-chrome-stable_current_amd64.deb || sudo apt-get -f install -y
+          
+          # 验证安装
+          echo "=== Chrome 安装信息 ==="
+          google-chrome --version
+          which google-chrome
+          ls -la /usr/bin/google-chrome*
+      
+      - name: Install Python dependencies
+        run: |
+          cd warp-pool
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          
+          # 清理 ChromeDriver 缓存
+          rm -rf ~/.undetected_chromedriver
+          rm -rf /tmp/.com.google.Chrome.*
+      
+      - name: Configure environment
+        run: |
+          cd warp-pool
+          
+          # 从 GitHub Secrets 创建 .env 文件
+          cat > .env << EOF
+          FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}
+          MOEMAIL_API_KEY=${{ secrets.MOEMAIL_API_KEY }}
+          PROXY_URL=${{ secrets.PROXY_URL }}
+          HEADLESS=true
+          MAX_RETRIES=3
+          TIMEOUT=60
+          EOF
+          
+          echo "✅ 环境变量配置完成"
+      
+      - name: Test proxy connection
+        run: |
+          cd warp-pool
+          
+          python -c "
+          import os
+          from dotenv import load_dotenv
+          import httpx
+          
+          load_dotenv()
+          proxy = os.getenv('PROXY_URL')
+          
+          if proxy:
+              try:
+                  client = httpx.Client(proxy=proxy, timeout=10.0, verify=False)
+                  response = client.get('https://api.ipify.org?format=json')
+                  print(f'✅ 代理可用，出口IP: {response.json()[\"ip\"]}')
+              except Exception as e:
+                  print(f'❌ 代理测试失败: {e}')
+                  exit(1)
+          else:
+              print('⚠️ 未配置代理，将使用直连')
+          "
+      
+      - name: Run registration
+        id: register
+        run: |
+          cd warp-pool
+          
+          # 创建必要目录
+          mkdir -p accounts debug
+          
+          # 显示环境信息
+          echo "=== 环境信息 ==="
+          google-chrome --version
+          python --version
+          
+          # 设置最大重试次数
+          MAX_ATTEMPTS=3
+          ATTEMPT=1
+          SUCCESS=false
+          
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "=== 尝试 $ATTEMPT/$MAX_ATTEMPTS ==="
+            
+            if xvfb-run -a python register.py --headless true 2>&1 | tee registration_attempt_$ATTEMPT.log; then
+              if ls accounts/*.json 1>/dev/null 2>&1; then
+                SUCCESS=true
+                echo "✅ 注册成功"
+                break
+              fi
+            fi
+            
+            echo "❌ 尝试 $ATTEMPT 失败"
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "等待 30 秒后重试..."
+              sleep 30
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+          
+          if [ "$SUCCESS" = true ]; then
+            echo "account_created=true" >> $GITHUB_OUTPUT
+          else
+            echo "account_created=false" >> $GITHUB_OUTPUT
+            echo "❌ 所有尝试均失败"
+            exit 1
+          fi
+      
+      - name: Commit accounts
+        if: steps.register.outputs.account_created == 'true'
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          
+          # 移动账号文件到根目录的 accounts/
+          if ls warp-pool/accounts/*.json 1>/dev/null 2>&1; then
+            mkdir -p accounts
+            mv warp-pool/accounts/*.json accounts/
+          fi
+          
+          git add accounts/*.json
+          
+          if ! git diff --staged --quiet; then
+            ACCOUNT_COUNT=$(ls accounts/*.json 2>/dev/null | wc -l)
+            TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+            git commit -m "🤖 Auto-register: New account at $TIMESTAMP (Total: $ACCOUNT_COUNT)"
+            git push
+          else
+            echo "⚠️ 没有新账号需要提交"
+          fi
+      
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: registration-run-${{ github.run_number }}
+          path: |
+            warp-pool/accounts/*.json
+            warp-pool/registration.log
+            warp-pool/debug/*.png
+          retention-days: 30
+          if-no-files-found: ignore
