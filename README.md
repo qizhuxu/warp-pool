@@ -24,27 +24,67 @@ copy .env.example .env
 
 ## 配置
 
-编辑 `.env` 文件：
+推荐先复制示例配置文件并填入私有值：
+
+```powershell
+copy .env.example .env
+# 或 (Linux/macOS)
+cp .env.example .env
+```
+
+下面是可用的环境变量及说明（同时参考 `config.example.py`）：
 
 ```env
-# 临时邮箱服务配置
-MOEMAIL_URL=https://email.959585.xyz
-MOEMAIL_API_KEY=your_api_key
+# ------------------ 邮箱服务 ------------------
+MOEMAIL_URL=https://email.959585.xyz      # 临时邮箱服务的 base URL
+MOEMAIL_API_KEY=your_api_key_here          # 临时邮箱服务 API Key（必填）
 
-# Firebase API Key
-FIREBASE_API_KEY=AIzaSyBdy3O3S9hrdayLJxJ7mriBR4qgUaUygAs
+# ------------------ Firebase ------------------
+FIREBASE_API_KEY=YOUR_FIREBASE_API_KEY     # Firebase API Key（如果使用相关功能）
 
-# 浏览器配置
-HEADLESS=false  # true=后台运行，false=显示浏览器窗口
+# ------------------ Warp / 页面 ------------------
+WARP_LOGIN_URL=https://app.warp.dev/login  # Warp 登录页面 URL（通常不需修改）
 
-# Chrome 版本配置（可选）
-# 如果本地使用 Chrome 121，取消注释此行
-# CHROME_VERSION=121
+# ------------------ 浏览器 & 指纹 ------------------
+HEADLESS=false                             # true=无头模式 (后台)；false=可视化
+CHROME_BINARY_PATH=                         # 可选：Chrome 可执行文件绝对路径
+CHROMEDRIVER_PATH=                          # 可选：ChromeDriver 可执行文件路径
 
-# 代理配置（可选，强烈推荐）
-HTTP_PROXY=http://127.0.0.1:7890
-HTTPS_PROXY=http://127.0.0.1:7890
+FINGERPRINT_RANDOMIZE=true                  # 指纹随机化总开关（true/false）
+FINGERPRINT_LEVEL=balanced                  # basic | balanced | aggressive
+ENHANCED_PROFILES_ENABLED=true              # 是否使用增强配置文件
+STRICT_CONSISTENCY_CHECK=true               # 是否启用严格一致性校验
+FINGERPRINT_DEBUG=false                     # 是否输出指纹调试信息
+
+# ------------------ 超时 & 批量 ------------------
+EMAIL_TIMEOUT=120                           # 等待邮件的超时（秒）
+REGISTER_COUNT=1                            # 每次运行注册账号数量
+REGISTER_INTERVAL=5                         # 注册间隔（秒）
+
+# ------------------ 代理（可选） ------------------
+# 使用 HTTP/HTTPS 代理（大多数工具支持）
+# 例如：HTTP_PROXY=http://127.0.0.1:7890
+# Windows PowerShell 临时设置示例：
+# $env:HTTP_PROXY = 'http://127.0.0.1:7890'
+# 如果使用 SOCKS5，某些库/工具需要额外配置；Git 示例请参见下文。
+
+# ------------------ 说明 ------------------
+# - 请把真实密钥保存在本地的 `.env` 或 私有 `config.py` 中，不要推送到公共仓库。
+# - 仓库包含 `config.example.py` 作为参考模板，不含你的密钥。
+# - 如果你需要对 git 使用代理（例如 SOCKS5），推荐使用 git config 设置：
+#     git config http.proxy "socks5h://127.0.0.1:10808"
+#     git config https.proxy "socks5h://127.0.0.1:10808"
 ```
+
+安全与最佳实践
+- 永远不要在公共仓库中提交真实的 API key 或 `.env` 文件。仓库已将 `config.py`、`.env`、`accounts/` 等敏感项加入 `.gitignore`。
+- 在 CI 环境中使用仓库设置（Secrets / environment variables）来注入真实凭证。
+- 如果不小心提交了敏感信息，请立即在提供方（例如邮箱服务或 Firebase）撤销/重置密钥，并使用工具（如 BFG 或 git-filter-repo）清理历史。
+
+关于代理与网络
+- 实际运行时强烈建议使用高质量代理（住宅代理 > 数据中心代理）。
+- 如果在推送到 GitHub 时遇到连接问题，可以通过设置 git 的代理来解决（示例见上）。
+
 
 ## 使用
 
