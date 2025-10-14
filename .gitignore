@@ -19,7 +19,6 @@ ENV/
 
 # Environment variables and secrets
 .env
-.env.*
 *.env
 
 # Pytest / caches
