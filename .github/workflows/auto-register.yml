@@ -86,6 +86,39 @@ jobs:
           rm -rf ~/.undetected_chromedriver
           rm -rf /tmp/.com.google.Chrome.*
       
+      - name: Download previous accounts
+        id: download
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE_TAG=$(date -u '+%Y-%m-%d')
+          echo "date_tag=$DATE_TAG" >> $GITHUB_OUTPUT
+          
+          # 尝试下载今天的 all_accounts.json
+          if gh release view "$DATE_TAG" >/dev/null 2>&1; then
+            echo "📥 发现今天的 release，下载现有账号数据..."
+            
+            # 下载并解压
+            gh release download "$DATE_TAG" -p "all_accounts.json" 2>/dev/null || true
+            
+            if [ -f "all_accounts.json" ]; then
+              # 创建目录并移动文件
+              mkdir -p "accounts/$DATE_TAG"
+              mv all_accounts.json "accounts/$DATE_TAG/"
+              
+              OLD_COUNT=$(jq '. | length' "accounts/$DATE_TAG/all_accounts.json")
+              echo "📊 已下载现有账号: $OLD_COUNT 个"
+              echo "old_count=$OLD_COUNT" >> $GITHUB_OUTPUT
+            else
+              echo "ℹ️  今天的 release 中没有 all_accounts.json"
+              echo "old_count=0" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "ℹ️  今天还没有 release，从零开始"
+            echo "old_count=0" >> $GITHUB_OUTPUT
+          fi
+      
       - name: Configure environment
         run: |
           # 创建 .env 文件
@@ -130,69 +163,157 @@ jobs:
           google-chrome --version
           python --version
           
-          # 统计当前账号数
-          CURRENT_COUNT=$(find accounts -name "*.json" -not -name "all_accounts.json" 2>/dev/null | wc -l)
-          echo "📊 当前账号数: $CURRENT_COUNT"
+          # 获取旧账号数
+          OLD_COUNT="${{ steps.download.outputs.old_count }}"
+          echo "📊 已有账号数: $OLD_COUNT"
           
-          # 使用批量注册脚本，每次增加 11 个账号
-          echo "🚀 开始批量注册（目标增加 11 个账号）..."
-          xvfb-run -a python batch_register.py --add 11 --headless true --max-fails 5 2>&1 | tee registration.log
+          # 使用批量注册脚本，每次增加 5 个账号
+          echo "🚀 开始批量注册（目标增加 5 个账号）..."
+          xvfb-run -a python batch_register.py --add 5 --headless true --max-fails 5 2>&1 | tee registration.log
           
           # 保存退出码
           EXIT_CODE=${PIPESTATUS[0]}
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
           
-          # 统计新增账号数
-          NEW_COUNT=$(find accounts -name "*.json" -not -name "all_accounts.json" 2>/dev/null | wc -l)
-          ADDED_COUNT=$((NEW_COUNT - CURRENT_COUNT))
+          # 检查 all_accounts.json 是否存在
+          DATE_TAG="${{ steps.download.outputs.date_tag }}"
+          ALL_ACCOUNTS_FILE="accounts/$DATE_TAG/all_accounts.json"
           
-          echo "📊 新增账号数: $ADDED_COUNT"
-          echo "added_count=$ADDED_COUNT" >> $GITHUB_OUTPUT
-          echo "total_count=$NEW_COUNT" >> $GITHUB_OUTPUT
-          
-          # 检查是否有新账号
-          if [ $ADDED_COUNT -gt 0 ]; then
-            echo "account_created=true" >> $GITHUB_OUTPUT
-            echo "✅ 批量注册完成，新增 $ADDED_COUNT 个账号"
+          if [ -f "$ALL_ACCOUNTS_FILE" ]; then
+            # 统计总账号数和新增数
+            TOTAL_COUNT=$(jq '. | length' "$ALL_ACCOUNTS_FILE")
+            ADDED_COUNT=$((TOTAL_COUNT - OLD_COUNT))
+            
+            echo "📊 新增账号数: $ADDED_COUNT"
+            echo "📊 总账号数: $TOTAL_COUNT"
+            echo "added_count=$ADDED_COUNT" >> $GITHUB_OUTPUT
+            echo "total_count=$TOTAL_COUNT" >> $GITHUB_OUTPUT
+            
+            if [ $ADDED_COUNT -gt 0 ]; then
+              echo "account_created=true" >> $GITHUB_OUTPUT
+              echo "✅ 批量注册完成，新增 $ADDED_COUNT 个账号"
+            else
+              echo "account_created=false" >> $GITHUB_OUTPUT
+              echo "⚠️ 未成功注册新账号"
+            fi
           else
             echo "account_created=false" >> $GITHUB_OUTPUT
-            echo "⚠️ 未成功注册新账号"
+            echo "added_count=0" >> $GITHUB_OUTPUT
+            echo "total_count=$OLD_COUNT" >> $GITHUB_OUTPUT
+            echo "⚠️ 未找到 all_accounts.json 文件"
           fi
       
-      - name: Commit accounts
+      - name: Prepare release data
         if: steps.register.outputs.account_created == 'true'
+        id: prepare
         run: |
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
+          DATE_TAG="${{ steps.download.outputs.date_tag }}"
+          ALL_ACCOUNTS_FILE="accounts/$DATE_TAG/all_accounts.json"
           
-          # 强制添加 accounts 目录（忽略 .gitignore）
-          git add -f accounts/
+          # 确保文件存在
+          if [ ! -f "$ALL_ACCOUNTS_FILE" ]; then
+            echo "❌ all_accounts.json 不存在"
+            exit 1
+          fi
           
-          if ! git diff --staged --quiet; then
-            ADDED_COUNT="${{ steps.register.outputs.added_count }}"
-            TOTAL_COUNT="${{ steps.register.outputs.total_count }}"
+          # 复制到根目录方便上传
+          cp "$ALL_ACCOUNTS_FILE" ./all_accounts.json
+          echo "✅ 已准备 all_accounts.json"
+          
+          # 生成发布说明
+          ADDED_COUNT="${{ steps.register.outputs.added_count }}"
+          TOTAL_COUNT="${{ steps.register.outputs.total_count }}"
+          OLD_COUNT="${{ steps.download.outputs.old_count }}"
+          
+          cat > release-notes.md << EOF
+          # 📅 $(date -u '+%Y-%m-%d') 账号数据
+          
+          ## 📊 统计信息
+          - ➕ 本次新增: **${ADDED_COUNT}** 个账号
+          - 📦 今日总计: **${TOTAL_COUNT}** 个账号
+          - � 之前总已有: **${OLD_COUNT}** 个账号
+          - ⏰ 更新时间: $(date -u '+%Y-%m-%d %H:%M:%S') UTC
+          
+          ## 📥 下载说明
+          下载 \`all_accounts.json\` 文件即可获取今日所有账号数据（累计）。
+          
+          ## 🔗 相关链接
+          - [查看工作流运行](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - [查看所有发布](https://github.com/${{ github.repository }}/releases)
+          
+          ---
+          🤖 由 GitHub Actions 自动生成 | 每小时自动更新
+          EOF
+          
+          echo "✅ 发布说明已生成"
+      
+      - name: Create or update daily release
+        if: steps.register.outputs.account_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE_TAG="${{ steps.download.outputs.date_tag }}"
+          
+          # 检查今天的 release 是否已存在
+          if gh release view "$DATE_TAG" >/dev/null 2>&1; then
+            echo "📝 更新现有 release: $DATE_TAG"
             
-            git commit -m "🤖 Auto-register: Batch registration completed
-
-            ➕ Added: $ADDED_COUNT accounts
-            📊 Total: $TOTAL_COUNT accounts
-            ⏰ Time: $(date -u '+%Y-%m-%d %H:%M:%S') UTC
-            🔗 Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            # 删除旧的 all_accounts.json
+            gh release delete-asset "$DATE_TAG" "all_accounts.json" --yes 2>/dev/null || true
             
-            git push
-            echo "✅ 账号文件已提交"
+            # 上传新的 all_accounts.json
+            gh release upload "$DATE_TAG" "all_accounts.json" --clobber
+            
+            # 更新 release 说明
+            gh release edit "$DATE_TAG" --notes-file release-notes.md
+            
+            echo "✅ Release 已更新（累计 ${{ steps.register.outputs.total_count }} 个账号）"
           else
-            echo "ℹ️ 没有新文件需要提交"
+            echo "🆕 创建新 release: $DATE_TAG"
+            
+            # 创建新 release
+            gh release create "$DATE_TAG" \
+              "all_accounts.json" \
+              --title "📅 Accounts - $DATE_TAG" \
+              --notes-file release-notes.md
+            
+            echo "✅ Release 已创建"
           fi
       
-      - name: Upload artifacts
+      - name: Cleanup old releases
+        if: steps.register.outputs.account_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🧹 清理 7 天前的 releases..."
+          
+          # 计算 7 天前的日期
+          CUTOFF_DATE=$(date -u -d '7 days ago' '+%Y-%m-%d' 2>/dev/null || date -u -v-7d '+%Y-%m-%d')
+          echo "清理日期阈值: $CUTOFF_DATE"
+          
+          # 获取所有 release 标签
+          gh release list --limit 100 | while read -r line; do
+            TAG=$(echo "$line" | awk '{print $1}')
+            
+            # 检查标签是否是日期格式 (YYYY-MM-DD)
+            if [[ "$TAG" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+              # 比较日期
+              if [[ "$TAG" < "$CUTOFF_DATE" ]]; then
+                echo "🗑️  删除旧 release: $TAG"
+                gh release delete "$TAG" --yes --cleanup-tag
+              fi
+            fi
+          done
+          
+          echo "✅ 清理完成"
+      
+      - name: Upload debug artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: registration-run-${{ github.run_number }}
+          name: debug-logs-${{ github.run_number }}
           path: |
-            accounts/**/*.json
             registration.log
             debug/*.png
-          retention-days: 30
+          retention-days: 7
           if-no-files-found: ignore
