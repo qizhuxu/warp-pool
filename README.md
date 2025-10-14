@@ -124,7 +124,7 @@ python batch_register.py --list
 - ✅ 支持随时中断（Ctrl+C）
 - ✅ 智能间隔控制（避免频率过高）
 
-**详细说明**: 查看 [BATCH_REGISTER.md](docs\BATCH_REGISTER.md)
+**详细说明**: 查看 [BATCH_REGISTER.md](BATCH_REGISTER.md)
 
 ## 优势对比
 
