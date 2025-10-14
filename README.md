@@ -66,7 +66,7 @@ REGISTER_INTERVAL=5                         # 注册间隔（秒）
 # 例如：HTTP_PROXY=http://127.0.0.1:7890
 # Windows PowerShell 临时设置示例：
 # $env:HTTP_PROXY = 'http://127.0.0.1:7890'
-
+```
 
 ## 使用
 
