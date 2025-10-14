@@ -2,7 +2,7 @@ name: Auto Register Warp Account
 
 on:
   schedule:
-    - cron: '0 */1 * * *'  # 每2小时执行一次
+    - cron: '0 */1 * * *'  # 每1小时执行一次
   workflow_dispatch:  # 允许手动触发
 
 jobs:
@@ -118,7 +118,7 @@ jobs:
           
           echo "✅ 环境配置完成"
       
-      - name: Run registration
+      - name: Batch registration
         id: register
         continue-on-error: true
         run: |
@@ -130,30 +130,33 @@ jobs:
           google-chrome --version
           python --version
           
-          # 使用 xvfb-run 运行注册
-          echo "开始注册..."
-          xvfb-run -a python register.py --headless true 2>&1 | tee registration.log
+          # 统计当前账号数
+          CURRENT_COUNT=$(find accounts -name "*.json" -not -name "all_accounts.json" 2>/dev/null | wc -l)
+          echo "📊 当前账号数: $CURRENT_COUNT"
+          
+          # 使用批量注册脚本，每次增加 5 个账号
+          echo "🚀 开始批量注册（目标增加 5 个账号）..."
+          xvfb-run -a python batch_register.py --add 5 --headless true --max-fails 5 2>&1 | tee registration.log
           
           # 保存退出码
           EXIT_CODE=${PIPESTATUS[0]}
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
           
-          # 检查是否生成账号（检查日期目录）
-          TODAY=$(date +%Y-%m-%d)
-          if [ -d "accounts/$TODAY" ] && [ -n "$(ls -A accounts/$TODAY/*.json 2>/dev/null)" ]; then
+          # 统计新增账号数
+          NEW_COUNT=$(find accounts -name "*.json" -not -name "all_accounts.json" 2>/dev/null | wc -l)
+          ADDED_COUNT=$((NEW_COUNT - CURRENT_COUNT))
+          
+          echo "📊 新增账号数: $ADDED_COUNT"
+          echo "added_count=$ADDED_COUNT" >> $GITHUB_OUTPUT
+          echo "total_count=$NEW_COUNT" >> $GITHUB_OUTPUT
+          
+          # 检查是否有新账号
+          if [ $ADDED_COUNT -gt 0 ]; then
             echo "account_created=true" >> $GITHUB_OUTPUT
-            
-            # 获取最新账号信息
-            LATEST_ACCOUNT=$(ls -t accounts/$TODAY/*.json 2>/dev/null | grep -v all_accounts.json | head -1)
-            if [ -n "$LATEST_ACCOUNT" ]; then
-              EMAIL=$(python -c "import json; print(json.load(open('$LATEST_ACCOUNT'))['email'])" 2>/dev/null || echo "unknown")
-              echo "latest_email=$EMAIL" >> $GITHUB_OUTPUT
-            fi
-            
-            echo "✅ 注册成功"
+            echo "✅ 批量注册完成，新增 $ADDED_COUNT 个账号"
           else
             echo "account_created=false" >> $GITHUB_OUTPUT
-            echo "❌ 注册失败"
+            echo "⚠️ 未成功注册新账号"
           fi
       
       - name: Commit accounts
@@ -162,17 +165,17 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
           
-          # 添加整个 accounts 目录
-          git add accounts/
+          # 强制添加 accounts 目录（忽略 .gitignore）
+          git add -f accounts/
           
           if ! git diff --staged --quiet; then
-            # 统计总账号数
-            TOTAL_COUNT=$(find accounts -name "*.json" -not -name "all_accounts.json" | wc -l)
-            EMAIL="${{ steps.register.outputs.latest_email }}"
+            ADDED_COUNT="${{ steps.register.outputs.added_count }}"
+            TOTAL_COUNT="${{ steps.register.outputs.total_count }}"
             
-            git commit -m "🤖 Auto-register: New account $EMAIL
+            git commit -m "🤖 Auto-register: Batch registration completed
 
-            📊 Total accounts: $TOTAL_COUNT
+            ➕ Added: $ADDED_COUNT accounts
+            📊 Total: $TOTAL_COUNT accounts
             ⏰ Time: $(date -u '+%Y-%m-%d %H:%M:%S') UTC
             🔗 Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             

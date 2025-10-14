@@ -2,11 +2,11 @@
 
 ## 📋 功能说明
 
-`auto-register.yml` 工作流会自动执行 Warp 账号注册，并将生成的账号信息保存到仓库中。
+`auto-register.yml` 工作流会自动执行 Warp 账号批量注册，每次增加 5 个账号，并将生成的账号信息保存到仓库中。
 
 ## ⏰ 执行时间
 
-- **自动执行**: 每 2 小时执行一次（UTC 时间）
+- **自动执行**: 每 1 小时执行一次（UTC 时间）
 - **手动触发**: 可在 GitHub Actions 页面手动运行
 
 ## 🔧 工作流程
@@ -14,13 +14,17 @@
 1. **环境准备**
    - 检出代码仓库
    - 安装 Python 3.11
+   - 随机化机器码（machine-id 和 hostname）
    - 安装 Chrome 浏览器及依赖
    - 安装 Python 依赖包
 
-2. **执行注册**
-   - 运行 `warp-pool/register.py --headless true`
+2. **批量注册** 🆕
+   - 运行 `batch_register.py --add 5 --headless true --max-fails 5`
+   - 每次增加 5 个账号
+   - 连续失败 2 次自动重置环境
+   - 最多允许连续失败 5 次
    - 使用无头模式（后台运行）
-   - 生成账号 JSON 文件到 `warp-pool/accounts/` 目录
+   - 生成账号 JSON 文件到 `accounts/YYYY-MM-DD/` 目录
 
 3. **保存结果**
    - 自动提交新生成的账号文件
@@ -30,10 +34,11 @@
 ## 📦 输出文件
 
 ### 提交到仓库
-- `warp-pool/accounts/account_YYYYMMDD_HHMMSS.json` - 账号信息
+- `accounts/YYYY-MM-DD/*.json` - 账号信息（按日期分类）
+- `accounts/YYYY-MM-DD/all_accounts.json` - 当日汇总
 
 ### Artifacts（保留 30 天）
-- 账号 JSON 文件
+- 所有账号 JSON 文件
 - 注册日志 `registration.log`
 - 调试截图（如果有）
 

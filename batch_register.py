@@ -10,11 +10,54 @@ import time
 import glob
 import random
 import argparse
+import subprocess
 from typing import Dict, Any, List
 from datetime import datetime
 
 from config import config
 from register import register_single_account
+
+
+def reset_warp_environment():
+    """
+    调用环境清理工具重置 Warp
+    
+    Returns:
+        bool: 是否成功重置
+    """
+    print("\n" + "="*60)
+    print("🔄 检测到连续失败，正在重置 Warp 环境...")
+    print("="*60 + "\n")
+    
+    try:
+        # 调用 reset_warp.py，使用静默模式
+        result = subprocess.run(
+            [sys.executable, 'reset_warp.py', '--silent'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        # 打印输出
+        if result.stdout:
+            print(result.stdout)
+        
+        if result.returncode == 0:
+            print("\n✅ 环境重置成功")
+            return True
+        else:
+            print(f"\n⚠️ 环境重置失败")
+            if result.stderr:
+                print(f"错误: {result.stderr}")
+            return False
+    
+    except subprocess.TimeoutExpired:
+        print("\n⚠️ 环境重置超时")
+        return False
+    
+    except Exception as e:
+        print(f"\n⚠️ 环境重置出错: {e}")
+        return False
 
 
 def count_existing_accounts() -> int:
@@ -148,15 +191,16 @@ def batch_register(target_count: int, headless: bool = None, max_fails: int = 3)
     estimated_time = need_count * avg_time_per_account
     print(f"⏱️  预计耗时: {estimated_time/60:.1f} 分钟")
     
-    # 5. 确认开始
+    # 5. 显示注意事项
     print(f"\n{'='*60}")
     print(f"⚠️  注意事项:")
     print(f"  1. 建议间隔时间: {config.REGISTER_INTERVAL} 秒")
-    print(f"  2. 连续失败 {max_fails} 次将自动停止")
-    print(f"  3. 可随时按 Ctrl+C 中断")
+    print(f"  2. 连续失败 2 次将自动重置环境")
+    print(f"  3. 连续失败 {max_fails} 次将自动停止")
+    print(f"  4. 可随时按 Ctrl+C 中断")
     print(f"{'='*60}\n")
     
-    input("按 Enter 键开始批量注册...")
+    print("🚀 开始批量注册...\n")
     
     # 6. 开始批量注册
     success_count = 0
@@ -190,6 +234,15 @@ def batch_register(target_count: int, headless: bool = None, max_fails: int = 3)
                 print(f"\n❌ 注册失败: {error}")
                 print(f"⚠️  连续失败: {consecutive_fails}/{max_fails}")
                 
+                # 连续失败 2 次后重置环境
+                if consecutive_fails == 2:
+                    if reset_warp_environment():
+                        print("🔄 环境已重置，将继续尝试注册...")
+                        # 重置后等待一下
+                        time.sleep(5)
+                    else:
+                        print("⚠️ 环境重置失败，但将继续尝试...")
+                
                 # 检查连续失败次数
                 if consecutive_fails >= max_fails:
                     print(f"\n⚠️ 连续失败 {max_fails} 次，停止注册")
@@ -219,6 +272,14 @@ def batch_register(target_count: int, headless: bool = None, max_fails: int = 3)
             print(f"\n❌ 发生异常: {e}")
             fail_count += 1
             consecutive_fails += 1
+            
+            # 连续失败 2 次后重置环境
+            if consecutive_fails == 2:
+                if reset_warp_environment():
+                    print("🔄 环境已重置，将继续尝试注册...")
+                    time.sleep(5)
+                else:
+                    print("⚠️ 环境重置失败，但将继续尝试...")
             
             if consecutive_fails >= max_fails:
                 print(f"\n⚠️ 连续失败 {max_fails} 次，停止注册")
