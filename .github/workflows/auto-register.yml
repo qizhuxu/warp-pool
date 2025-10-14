@@ -134,8 +134,8 @@ jobs:
           CURRENT_COUNT=$(find accounts -name "*.json" -not -name "all_accounts.json" 2>/dev/null | wc -l)
           echo "📊 当前账号数: $CURRENT_COUNT"
           
-          # 使用批量注册脚本，每次增加 5 个账号
-          echo "🚀 开始批量注册（目标增加 5 个账号）..."
+          # 使用批量注册脚本，每次增加 10 个账号
+          echo "🚀 开始批量注册（目标增加 10 个账号）..."
           xvfb-run -a python batch_register.py --add 10 --headless true --max-fails 5 2>&1 | tee registration.log
           
           # 保存退出码
