@@ -21,6 +21,40 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
       
+      - name: Randomize Machine ID
+        run: |
+          echo "=== 修改机器码 ==="
+          
+          # 1. 生成随机的 machine-id（使用 openssl 更可靠）
+          RANDOM_MACHINE_ID=$(openssl rand -hex 16)
+          echo "新的 machine-id: $RANDOM_MACHINE_ID"
+          
+          # 修改 /etc/machine-id
+          echo "$RANDOM_MACHINE_ID" | sudo tee /etc/machine-id > /dev/null
+          
+          # 修改 /var/lib/dbus/machine-id（如果存在）
+          if [ -f /var/lib/dbus/machine-id ]; then
+            echo "$RANDOM_MACHINE_ID" | sudo tee /var/lib/dbus/machine-id > /dev/null
+          fi
+          
+          # 2. 生成随机的 hostname
+          RANDOM_SUFFIX=$(openssl rand -hex 4)
+          RANDOM_HOSTNAME="gh-runner-${RANDOM_SUFFIX}"
+          echo "新的 hostname: $RANDOM_HOSTNAME"
+          sudo hostname "$RANDOM_HOSTNAME"
+          echo "$RANDOM_HOSTNAME" | sudo tee /etc/hostname > /dev/null
+          
+          # 3. 清理可能缓存机器信息的文件
+          sudo rm -rf /var/lib/systemd/random-seed 2>/dev/null || true
+          rm -rf ~/.cache/* 2>/dev/null || true
+          
+          # 验证修改
+          echo "=== 验证机器码 ==="
+          echo "machine-id: $(cat /etc/machine-id)"
+          echo "hostname: $(hostname)"
+          
+          echo "✅ 机器码修改完成"
+      
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -59,7 +93,7 @@ jobs:
           MOEMAIL_URL=${{ secrets.MOEMAIL_URL || 'https://email.959585.xyz' }}
           MOEMAIL_API_KEY=${{ secrets.MOEMAIL_API_KEY }}
           FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}
-          WARP_LOGIN_URL=https://app.warp.dev/login
+          WARP_LOGIN_URL=https://app.warp.dev/referral/EWP6QD
           HEADLESS=true
           FINGERPRINT_RANDOMIZE=true
           FINGERPRINT_LEVEL=balanced
