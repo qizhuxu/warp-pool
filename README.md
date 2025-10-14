@@ -66,24 +66,6 @@ REGISTER_INTERVAL=5                         # 注册间隔（秒）
 # 例如：HTTP_PROXY=http://127.0.0.1:7890
 # Windows PowerShell 临时设置示例：
 # $env:HTTP_PROXY = 'http://127.0.0.1:7890'
-# 如果使用 SOCKS5，某些库/工具需要额外配置；Git 示例请参见下文。
-
-# ------------------ 说明 ------------------
-# - 请把真实密钥保存在本地的 `.env` 或 私有 `config.py` 中，不要推送到公共仓库。
-# - 仓库包含 `config.example.py` 作为参考模板，不含你的密钥。
-# - 如果你需要对 git 使用代理（例如 SOCKS5），推荐使用 git config 设置：
-#     git config http.proxy "socks5h://127.0.0.1:10808"
-#     git config https.proxy "socks5h://127.0.0.1:10808"
-```
-
-安全与最佳实践
-- 永远不要在公共仓库中提交真实的 API key 或 `.env` 文件。仓库已将 `config.py`、`.env`、`accounts/` 等敏感项加入 `.gitignore`。
-- 在 CI 环境中使用仓库设置（Secrets / environment variables）来注入真实凭证。
-- 如果不小心提交了敏感信息，请立即在提供方（例如邮箱服务或 Firebase）撤销/重置密钥，并使用工具（如 BFG 或 git-filter-repo）清理历史。
-
-关于代理与网络
-- 实际运行时强烈建议使用高质量代理（住宅代理 > 数据中心代理）。
-- 如果在推送到 GitHub 时遇到连接问题，可以通过设置 git 的代理来解决（示例见上）。
 
 
 ## 使用
@@ -92,7 +74,7 @@ REGISTER_INTERVAL=5                         # 注册间隔（秒）
 
 ```bash
 # 运行环境检查脚本
-python check_env.py
+python test\check_env.py
 ```
 
 这会检查：
@@ -155,7 +137,7 @@ A:
 1. **首次运行**: 正在下载 ChromeDriver，需要 30-60 秒，请耐心等待
 2. **网络问题**: 检查网络连接，可能需要配置代理
 3. **防火墙**: 确保防火墙允许下载
-4. **手动检查**: 运行 `python check_env.py` 诊断问题
+4. **手动检查**: 运行 `python test\check_env.py` 诊断问题
 
 ### Q: 如何确认是否在下载？
 A: 
