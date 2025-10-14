@@ -29,6 +29,7 @@ ENV/
 # IDEs and editors
 .vscode/
 .idea/
+.kiro
 *.sublime-workspace
 *.sublime-project
 

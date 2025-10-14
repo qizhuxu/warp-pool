@@ -19,45 +19,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
-      - name: Randomize Machine ID
-        run: |
-          echo "=== 修改机器码 ==="
-          
-          # 1. 生成随机的 machine-id（使用 openssl 更可靠）
-          RANDOM_MACHINE_ID=$(openssl rand -hex 16)
-          echo "新的 machine-id: $RANDOM_MACHINE_ID"
-          
-          # 修改 /etc/machine-id
-          echo "$RANDOM_MACHINE_ID" | sudo tee /etc/machine-id > /dev/null
-          
-          # 修改 /var/lib/dbus/machine-id（如果存在）
-          if [ -f /var/lib/dbus/machine-id ]; then
-            echo "$RANDOM_MACHINE_ID" | sudo tee /var/lib/dbus/machine-id > /dev/null
-          fi
-          
-          # 2. 生成随机的 hostname
-          RANDOM_SUFFIX=$(openssl rand -hex 4)
-          RANDOM_HOSTNAME="gh-runner-${RANDOM_SUFFIX}"
-          echo "新的 hostname: $RANDOM_HOSTNAME"
-          sudo hostname "$RANDOM_HOSTNAME"
-          echo "$RANDOM_HOSTNAME" | sudo tee /etc/hostname > /dev/null
-          
-          # 3. 清理可能缓存机器信息的文件
-          sudo rm -rf /var/lib/systemd/random-seed 2>/dev/null || true
-          rm -rf ~/.cache/* 2>/dev/null || true
-          
-          # 验证修改
-          echo "=== 验证机器码 ==="
-          echo "machine-id: $(cat /etc/machine-id)"
-          echo "hostname: $(hostname)"
-          
-          echo "✅ 机器码修改完成"
+          cache: 'pip'
       
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget xvfb jq
+          sudo apt-get install -y wget xvfb
           
           # 完全卸载旧版本 Chrome 和 Chromium
           sudo apt-get remove -y google-chrome-stable chromium-browser chromium || true
@@ -75,12 +42,9 @@ jobs:
           # 验证安装
           echo "=== Chrome 安装信息 ==="
           google-chrome --version
-          which google-chrome
-          ls -la /usr/bin/google-chrome*
       
       - name: Install Python dependencies
         run: |
-          cd warp-pool
           pip install --upgrade pip
           pip install -r requirements.txt
           
@@ -90,49 +54,40 @@ jobs:
       
       - name: Configure environment
         run: |
-          cd warp-pool
-          
-          # 从 GitHub Secrets 创建 .env 文件
+          # 创建 .env 文件
           cat > .env << EOF
-          FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}
+          MOEMAIL_URL=${{ secrets.MOEMAIL_URL || 'https://email.959585.xyz' }}
           MOEMAIL_API_KEY=${{ secrets.MOEMAIL_API_KEY }}
-          PROXY_URL=${{ secrets.PROXY_URL }}
+          FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}
+          WARP_LOGIN_URL=https://app.warp.dev/login
           HEADLESS=true
-          MAX_RETRIES=3
-          TIMEOUT=60
+          FINGERPRINT_RANDOMIZE=true
+          FINGERPRINT_LEVEL=balanced
+          ENHANCED_PROFILES_ENABLED=true
+          STRICT_CONSISTENCY_CHECK=true
+          FINGERPRINT_DEBUG=false
+          EMAIL_TIMEOUT=120
+          REGISTER_COUNT=1
+          REGISTER_INTERVAL=5
           EOF
           
-          echo "✅ 环境变量配置完成"
-      
-      - name: Test proxy connection
-        run: |
-          cd warp-pool
+          # 验证必需的环境变量
+          if [ -z "${{ secrets.MOEMAIL_API_KEY }}" ]; then
+            echo "❌ MOEMAIL_API_KEY 未配置"
+            exit 1
+          fi
           
-          python -c "
-          import os
-          from dotenv import load_dotenv
-          import httpx
+          if [ -z "${{ secrets.FIREBASE_API_KEY }}" ]; then
+            echo "❌ FIREBASE_API_KEY 未配置"
+            exit 1
+          fi
           
-          load_dotenv()
-          proxy = os.getenv('PROXY_URL')
-          
-          if proxy:
-              try:
-                  client = httpx.Client(proxy=proxy, timeout=10.0, verify=False)
-                  response = client.get('https://api.ipify.org?format=json')
-                  print(f'✅ 代理可用，出口IP: {response.json()[\"ip\"]}')
-              except Exception as e:
-                  print(f'❌ 代理测试失败: {e}')
-                  exit(1)
-          else:
-              print('⚠️ 未配置代理，将使用直连')
-          "
+          echo "✅ 环境配置完成"
       
       - name: Run registration
         id: register
+        continue-on-error: true
         run: |
-          cd warp-pool
-          
           # 创建必要目录
           mkdir -p accounts debug
           
@@ -141,36 +96,30 @@ jobs:
           google-chrome --version
           python --version
           
-          # 设置最大重试次数
-          MAX_ATTEMPTS=3
-          ATTEMPT=1
-          SUCCESS=false
+          # 使用 xvfb-run 运行注册
+          echo "开始注册..."
+          xvfb-run -a python register.py --headless true 2>&1 | tee registration.log
           
-          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            echo "=== 尝试 $ATTEMPT/$MAX_ATTEMPTS ==="
-            
-            if xvfb-run -a python register.py --headless true 2>&1 | tee registration_attempt_$ATTEMPT.log; then
-              if ls accounts/*.json 1>/dev/null 2>&1; then
-                SUCCESS=true
-                echo "✅ 注册成功"
-                break
-              fi
-            fi
-            
-            echo "❌ 尝试 $ATTEMPT 失败"
-            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-              echo "等待 30 秒后重试..."
-              sleep 30
-            fi
-            ATTEMPT=$((ATTEMPT + 1))
-          done
+          # 保存退出码
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
           
-          if [ "$SUCCESS" = true ]; then
+          # 检查是否生成账号（检查日期目录）
+          TODAY=$(date +%Y-%m-%d)
+          if [ -d "accounts/$TODAY" ] && [ -n "$(ls -A accounts/$TODAY/*.json 2>/dev/null)" ]; then
             echo "account_created=true" >> $GITHUB_OUTPUT
+            
+            # 获取最新账号信息
+            LATEST_ACCOUNT=$(ls -t accounts/$TODAY/*.json 2>/dev/null | grep -v all_accounts.json | head -1)
+            if [ -n "$LATEST_ACCOUNT" ]; then
+              EMAIL=$(python -c "import json; print(json.load(open('$LATEST_ACCOUNT'))['email'])" 2>/dev/null || echo "unknown")
+              echo "latest_email=$EMAIL" >> $GITHUB_OUTPUT
+            fi
+            
+            echo "✅ 注册成功"
           else
             echo "account_created=false" >> $GITHUB_OUTPUT
-            echo "❌ 所有尝试均失败"
-            exit 1
+            echo "❌ 注册失败"
           fi
       
       - name: Commit accounts
@@ -179,21 +128,24 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
           
-          # 移动账号文件到根目录的 accounts/
-          if ls warp-pool/accounts/*.json 1>/dev/null 2>&1; then
-            mkdir -p accounts
-            mv warp-pool/accounts/*.json accounts/
-          fi
-          
-          git add accounts/*.json
+          # 添加整个 accounts 目录
+          git add accounts/
           
           if ! git diff --staged --quiet; then
-            ACCOUNT_COUNT=$(ls accounts/*.json 2>/dev/null | wc -l)
-            TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-            git commit -m "🤖 Auto-register: New account at $TIMESTAMP (Total: $ACCOUNT_COUNT)"
+            # 统计总账号数
+            TOTAL_COUNT=$(find accounts -name "*.json" -not -name "all_accounts.json" | wc -l)
+            EMAIL="${{ steps.register.outputs.latest_email }}"
+            
+            git commit -m "🤖 Auto-register: New account $EMAIL
+
+📊 Total accounts: $TOTAL_COUNT
+⏰ Time: $(date -u '+%Y-%m-%d %H:%M:%S') UTC
+🔗 Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            
             git push
+            echo "✅ 账号文件已提交"
           else
-            echo "⚠️ 没有新账号需要提交"
+            echo "ℹ️ 没有新文件需要提交"
           fi
       
       - name: Upload artifacts
@@ -202,8 +154,8 @@ jobs:
         with:
           name: registration-run-${{ github.run_number }}
           path: |
-            warp-pool/accounts/*.json
-            warp-pool/registration.log
-            warp-pool/debug/*.png
+            accounts/**/*.json
+            registration.log
+            debug/*.png
           retention-days: 30
           if-no-files-found: ignore
