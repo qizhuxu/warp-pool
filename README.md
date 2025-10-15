@@ -5,7 +5,7 @@
 ## 特点
 
 - ✅ 使用 Undetected-Chromedriver（专门绕过检测）
-- ✅ 自动创建临时邮箱（基于 [MoeMail](https://github.com/beilunyang/moemail)）
+- ✅ 支持多种临时邮箱服务（MoeMail / Skymail，均需自建）
 - ✅ 自动发送注册请求
 - ✅ 自动接收验证邮件
 - ✅ 自动完成账号激活
@@ -37,9 +37,22 @@ cp .env.example .env
 
 ```env
 # ------------------ 邮箱服务 ------------------
-MOEMAIL_URL=https://email.959585.xyz      # 临时邮箱服务的 base URL
-MOEMAIL_API_KEY=your_api_key_here          # 临时邮箱服务 API Key（必填）
-                                           # 获取方式：https://github.com/beilunyang/moemail
+# 邮箱服务类型：moemail（默认）、skymail 或 auto（自动随机选择）
+EMAIL_SERVICE=moemail
+
+# MoeMail 配置（需自建）
+# 项目地址：https://github.com/beilunyang/moemail
+MOEMAIL_URL=https://email.959585.xyz
+MOEMAIL_API_KEY=your_api_key_here
+
+# Skymail (Cloud Mail) 配置（备用，需自建）
+# 项目地址：https://github.com/eoao/cloud-mail
+# Token 获取：https://doc.skymail.ink/api/api-doc.html#生成token
+SKYMAIL_URL=https://cloudmail.qixc.pp.ua
+SKYMAIL_TOKEN=your_token_here
+# 支持多域名（逗号分隔，随机选择）
+SKYMAIL_DOMAIN=example.com,domain2.com,domain3.com
+SKYMAIL_WILDCARD=false  # 通配符模式（无需注册）
 
 # ------------------ Firebase ------------------
 FIREBASE_API_KEY=YOUR_FIREBASE_API_KEY     # Firebase API Key（如果使用相关功能）
@@ -149,11 +162,26 @@ python batch_register.py --list
 
 进入仓库 **Settings** → **Secrets and variables** → **Actions**，添加：
 
-| Secret 名称 | 说明 | 获取方式 |
-|------------|------|---------|
-| `MOEMAIL_URL` | 临时邮箱服务 URL | `https://email.959585.xyz` |
-| `MOEMAIL_API_KEY` | 临时邮箱服务 API Key | 参考 [MoeMail](https://github.com/beilunyang/moemail) 项目 |
-| `FIREBASE_API_KEY` | Firebase API Key | `AIzaSyBdy3O3S9hrdayLJxJ7mriBR4qgUaUygAs` |
+| Secret 名称 | 必需性 | 说明 | 获取方式 |
+|------------|--------|------|---------|
+| `FIREBASE_API_KEY` | ✅ 必需 | Firebase API Key | `AIzaSyBdy3O3S9hrdayLJxJ7mriBR4qgUaUygAs` |
+| `MOEMAIL_URL` | ⚠️ 可选 | MoeMail 服务 URL | `https://email.959585.xyz` |
+| `MOEMAIL_API_KEY` | ⚠️ 可选* | MoeMail API Key | 参考 [MoeMail](https://github.com/beilunyang/moemail) 项目 |
+| `SKYMAIL_URL` | ⚠️ 可选 | Skymail 服务 URL | 参考 [Skymail](https://github.com/eoao/cloud-mail) 项目 |
+| `SKYMAIL_TOKEN` | ⚠️ 可选* | Skymail 管理员 Token | 参考 [Token 获取](https://doc.skymail.ink/api/api-doc.html#生成token) |
+| `SKYMAIL_DOMAIN` | ⚠️ 可选 | Skymail 域名列表 | `example.com,domain2.com` |
+
+**注意**: 至少需要配置一个邮箱服务（MoeMail 或 Skymail）
+
+**推荐配置两个服务（自动故障转移）**:
+- 配置 `MOEMAIL_API_KEY` 和 `SKYMAIL_TOKEN`
+- 工作流将自动使用 `auto` 模式
+- 启动时健康检查，自动选择可用服务
+- 运行时故障自动切换
+
+**也可以只配置一个服务**:
+- 只配置 `MOEMAIL_API_KEY` → 使用 MoeMail
+- 只配置 `SKYMAIL_TOKEN` → 使用 Skymail
 
 #### 2. 启用 Actions 权限
 
@@ -164,6 +192,10 @@ python batch_register.py --list
 #### 3. 手动触发测试
 
 进入 **Actions** 页面 → 选择 **"Auto Register Warp Account"** → 点击 **"Run workflow"**
+
+**可选参数**（手动触发时可调整）：
+- **注册账号数量**: 默认 6，可自定义
+- **最大连续失败次数**: 默认 6，可自定义
 
 #### 4. 下载账号数据
 
@@ -206,17 +238,29 @@ python batch_register.py --list
 
 ### 自定义配置
 
+#### 方法 1: 手动触发时调整参数（推荐）
+在 Actions 页面手动触发时，可以直接调整：
+- 注册账号数量（默认 6）
+- 最大连续失败次数（默认 6）
+
+#### 方法 2: 修改默认值（永久生效）
+编辑 `.github/workflows/auto-register.yml` 文件顶部的配置区域：
+
+```yaml
+# ============================================
+# 📝 配置区域 - 修改默认值请在此处修改
+# ============================================
+env:
+  DEFAULT_REGISTER_COUNT: 10     # 改为默认 10 个
+  DEFAULT_MAX_FAILS: 3            # 改为默认最多失败 3 次
+```
+
+#### 方法 3: 修改执行频率
 编辑 `.github/workflows/auto-register.yml`：
 
 ```yaml
-# 修改执行频率
 schedule:
   - cron: '0 */2 * * *'  # 改为每 2 小时
-
-# 修改注册数量
-- name: Batch registration
-  run: |
-    xvfb-run -a python batch_register.py --add 10  # 改为每次 10 个
 ```
 
 **详细说明**: 查看 [.github/workflows/README.md](.github/workflows/README.md)
@@ -321,9 +365,32 @@ A:
 3. 手动下载: 访问 https://chromedriver.chromium.org/
 4. 清理缓存后重试
 
-## 相关项目
+## 临时邮箱服务
 
-- **[MoeMail](https://github.com/beilunyang/moemail)** - 临时邮箱服务，本项目使用的邮箱 API
+本项目支持两种临时邮箱服务（均需自建）：
+
+### MoeMail（默认）
+- **项目地址**: https://github.com/beilunyang/moemail
+- **配置**: 需要 API Key
+- **优点**: 简单易用，API 稳定
+
+### Skymail (Cloud Mail)
+- **项目地址**: https://github.com/eoao/cloud-mail
+- **文档**: https://doc.skymail.ink/
+- **Token 获取**: https://doc.skymail.ink/api/api-doc.html#生成token
+- **配置**: 需要管理员 Token
+- **优点**: 功能完整，可自建部署，支持通配符邮箱（无需注册）
+
+### 切换邮箱服务
+
+编辑 `.env` 文件：
+```env
+# 使用 MoeMail
+EMAIL_SERVICE=moemail
+
+# 或使用 Skymail
+EMAIL_SERVICE=skymail
+```
 
 ## 文档
 

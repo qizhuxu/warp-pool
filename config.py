@@ -14,8 +14,17 @@ class Config:
     """配置类"""
     
     # 邮箱服务配置
+    EMAIL_SERVICE = os.getenv('EMAIL_SERVICE', 'moemail')  # moemail 或 skymail
+    
+    # MoeMail 配置
     MOEMAIL_URL = os.getenv('MOEMAIL_URL', 'https://email.959585.xyz')
     MOEMAIL_API_KEY = os.getenv('MOEMAIL_API_KEY', '')
+    
+    # Skymail (Cloud Mail) 配置
+    SKYMAIL_URL = os.getenv('SKYMAIL_URL', 'https://cloudmail.qixc.pp.ua')
+    SKYMAIL_TOKEN = os.getenv('SKYMAIL_TOKEN', '')  # 管理员 Token
+    SKYMAIL_DOMAIN = os.getenv('SKYMAIL_DOMAIN', 'qixc.pp.ua')  # 邮箱域名（支持多个域名，逗号分隔）
+    SKYMAIL_WILDCARD = os.getenv('SKYMAIL_WILDCARD', 'false').lower() == 'true'  # 通配符模式（无需注册）
     
     # Firebase 配置
     FIREBASE_API_KEY = os.getenv('FIREBASE_API_KEY', 'AIzaSyBdy3O3S9hrdayLJxJ7mriBR4qgUaUygAs')
@@ -44,8 +53,21 @@ class Config:
     
     def validate(self):
         """验证配置"""
-        if not self.MOEMAIL_API_KEY:
-            raise ValueError("MOEMAIL_API_KEY not configured")
+        # 验证邮箱服务配置
+        if self.EMAIL_SERVICE == 'moemail':
+            if not self.MOEMAIL_API_KEY:
+                raise ValueError("MOEMAIL_API_KEY not configured")
+        elif self.EMAIL_SERVICE == 'skymail':
+            if not self.SKYMAIL_TOKEN:
+                raise ValueError("SKYMAIL_TOKEN must be configured")
+        elif self.EMAIL_SERVICE == 'auto':
+            # auto 模式：至少需要配置一个服务
+            has_moemail = bool(self.MOEMAIL_API_KEY)
+            has_skymail = bool(self.SKYMAIL_TOKEN)
+            if not has_moemail and not has_skymail:
+                raise ValueError("AUTO mode requires at least one email service configured (MOEMAIL_API_KEY or SKYMAIL_TOKEN)")
+        else:
+            raise ValueError(f"Invalid EMAIL_SERVICE: {self.EMAIL_SERVICE}. Must be 'moemail', 'skymail', or 'auto'")
         
         if not self.FIREBASE_API_KEY:
             raise ValueError("FIREBASE_API_KEY not configured")

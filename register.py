@@ -23,8 +23,8 @@ def register_single_account(headless: bool = None) -> Dict[str, Any]:
     print("🚀 开始注册 Warp 账号 (Undetected-Chromedriver)")
     print("="*60 + "\n")
     
-    # 初始化服务（使用 MoeMail）
-    email_service = EmailService(use_1secmail=False)
+    # 初始化服务（从配置读取邮箱服务类型）
+    email_service = EmailService(service_type=config.EMAIL_SERVICE)
     activator = UCActivator(headless=headless)
     
     try:
@@ -143,7 +143,7 @@ def register_single_account(headless: bool = None) -> Dict[str, Any]:
         # 步骤4: 等待邮件
         print(f"\n📬 步骤 4/5: 等待验证邮件")
         print("-" * 60)
-        email_message = email_service.wait_for_email(email_id)
+        email_message = email_service.wait_for_email(email_info)
         
         if not email_message:
             return {"success": False, "error": "未收到验证邮件", "email": email_address}
