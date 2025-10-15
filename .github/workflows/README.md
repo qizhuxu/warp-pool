@@ -87,13 +87,9 @@
 
 | Secret 名称 | 说明 | 示例 |
 |------------|------|------|
+| `MOEMAIL_URL` | 临时邮箱服务 URL | `https://email.959585.xyz` |
 | `MOEMAIL_API_KEY` | 临时邮箱服务 API Key | `your_api_key_here` |
 | `FIREBASE_API_KEY` | Firebase API Key | `AIzaSy...` |
-
-### 可选的 Secrets
-| Secret 名称 | 说明 | 默认值 |
-|------------|------|--------|
-| `MOEMAIL_URL` | 临时邮箱服务 URL | `https://email.959585.xyz` |
 
 ### 自动配置的环境变量
 工作流会自动创建 `.env` 文件，包含：

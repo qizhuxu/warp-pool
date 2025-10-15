@@ -5,11 +5,12 @@
 ## 特点
 
 - ✅ 使用 Undetected-Chromedriver（专门绕过检测）
-- ✅ 自动创建临时邮箱
+- ✅ 自动创建临时邮箱（基于 [MoeMail](https://github.com/beilunyang/moemail)）
 - ✅ 自动发送注册请求
 - ✅ 自动接收验证邮件
 - ✅ 自动完成账号激活
-- ✅ 更高的成功率
+- ✅ 更高的成功率（90-98%）
+- ✅ GitHub Actions 自动化（每小时自动注册）
 
 ## 安装
 
@@ -38,6 +39,7 @@ cp .env.example .env
 # ------------------ 邮箱服务 ------------------
 MOEMAIL_URL=https://email.959585.xyz      # 临时邮箱服务的 base URL
 MOEMAIL_API_KEY=your_api_key_here          # 临时邮箱服务 API Key（必填）
+                                           # 获取方式：https://github.com/beilunyang/moemail
 
 # ------------------ Firebase ------------------
 FIREBASE_API_KEY=YOUR_FIREBASE_API_KEY     # Firebase API Key（如果使用相关功能）
@@ -126,6 +128,100 @@ python batch_register.py --list
 - ✅ 智能间隔控制（避免频率过高）
 
 **详细说明**: 查看 [BATCH_REGISTER.md](BATCH_REGISTER.md)
+
+---
+
+## GitHub Actions 自动化 🤖
+
+本项目支持通过 GitHub Actions 实现全自动注册，无需本地运行。
+
+### 功能特性
+
+- ⏰ **定时执行**：每小时自动运行一次
+- 📦 **累计模式**：每次增加 6 个账号，自动累计
+- 🔄 **机器码随机化**：每次运行自动生成新的设备标识
+- 📥 **Release 发布**：账号数据通过 GitHub Release 发布
+- 🧹 **自动清理**：7 天前的旧数据自动删除
+
+### 快速开始
+
+#### 1. 配置 Secrets
+
+进入仓库 **Settings** → **Secrets and variables** → **Actions**，添加：
+
+| Secret 名称 | 说明 | 获取方式 |
+|------------|------|---------|
+| `MOEMAIL_URL` | 临时邮箱服务 URL | `https://email.959585.xyz` |
+| `MOEMAIL_API_KEY` | 临时邮箱服务 API Key | 参考 [MoeMail](https://github.com/beilunyang/moemail) 项目 |
+| `FIREBASE_API_KEY` | Firebase API Key | `AIzaSyBdy3O3S9hrdayLJxJ7mriBR4qgUaUygAs` |
+
+#### 2. 启用 Actions 权限
+
+进入 **Settings** → **Actions** → **General**：
+- 在 "Workflow permissions" 中选择 **"Read and write permissions"**
+- 勾选 **"Allow GitHub Actions to create and approve pull requests"**
+
+#### 3. 手动触发测试
+
+进入 **Actions** 页面 → 选择 **"Auto Register Warp Account"** → 点击 **"Run workflow"**
+
+#### 4. 下载账号数据
+
+注册完成后，访问仓库的 **Releases** 页面：
+- 找到对应日期的 release（如 `2025-10-15`）
+- 下载 `all_accounts.json` 文件
+- 查看 release 说明了解统计信息
+
+### 工作流程
+
+```
+每小时触发
+    ↓
+随机化机器码和 hostname
+    ↓
+下载今天已有的账号数据
+    ↓
+批量注册 6 个新账号
+    ↓
+更新 all_accounts.json（累计）
+    ↓
+创建/更新 GitHub Release
+    ↓
+自动清理 7 天前的旧 releases
+```
+
+### 查看结果
+
+**方法 1：Release 页面（推荐）**
+- 访问仓库的 Releases 页面
+- 下载对应日期的 `all_accounts.json`
+
+**方法 2：Actions 日志**
+- 查看执行日志了解详细过程
+- 查看成功率和统计信息
+
+**方法 3：Artifacts（调试用）**
+- 下载 `debug-logs-*` 查看完整日志
+- 查看截图（如果有错误）
+
+### 自定义配置
+
+编辑 `.github/workflows/auto-register.yml`：
+
+```yaml
+# 修改执行频率
+schedule:
+  - cron: '0 */2 * * *'  # 改为每 2 小时
+
+# 修改注册数量
+- name: Batch registration
+  run: |
+    xvfb-run -a python batch_register.py --add 10  # 改为每次 10 个
+```
+
+**详细说明**: 查看 [.github/workflows/README.md](.github/workflows/README.md)
+
+---
 
 ## 优势对比
 
@@ -224,6 +320,18 @@ A:
 2. 配置代理: 在 .env 中设置 HTTP_PROXY
 3. 手动下载: 访问 https://chromedriver.chromium.org/
 4. 清理缓存后重试
+
+## 相关项目
+
+- **[MoeMail](https://github.com/beilunyang/moemail)** - 临时邮箱服务，本项目使用的邮箱 API
+
+## 文档
+
+- [快速开始指南](docs/quick-start.md) - 3 分钟快速配置
+- [浏览器指纹配置](docs/fingerprint-config-guide.md) - 详细的指纹配置说明
+- [批量注册说明](docs/BATCH_REGISTER.md) - 批量注册功能详解
+- [GitHub Actions 工作流](.github/workflows/README.md) - 自动化部署指南
+- [文档中心](docs/README.md) - 完整文档导航
 
 ## 许可证
 
