@@ -1,15 +1,210 @@
 name: Auto Register Warp Account
 
+# ============================================
+# 📝 配置区域 - 修改默认值请在此处修改
+# ============================================
+env:
+  DEFAULT_REGISTER_COUNT: 6      # 默认注册账号数量
+  DEFAULT_MAX_FAILS: 6            # 默认最大连续失败次数
+
 on:
   schedule:
     - cron: '0 */1 * * *'  # 每1小时执行一次
   workflow_dispatch:  # 允许手动触发
+    inputs:
+      register_count:
+        description: '注册账号数量'
+        required: false
+        default: '6'
+        type: string
+      max_fails:
+        description: '最大连续失败次数'
+        required: false
+        default: '6'
+        type: string
 
 jobs:
   register:
     runs-on: ubuntu-latest
     
     steps:
+      - name: Check Secrets Configuration and Service Health
+        run: |
+          echo "=========================================="
+          echo "  步骤 1: 检查 Secrets 配置"
+          echo "=========================================="
+          
+          # 检查 Firebase API Key（必需）
+          if [ -z "${{ secrets.FIREBASE_API_KEY }}" ]; then
+            echo "❌ FIREBASE_API_KEY 未配置"
+            echo "请在仓库 Settings → Secrets and variables → Actions 中添加 FIREBASE_API_KEY"
+            exit 1
+          else
+            echo "✅ FIREBASE_API_KEY 已配置"
+          fi
+          
+          # 检查邮箱服务配置
+          HAS_MOEMAIL=false
+          HAS_SKYMAIL=false
+          MOEMAIL_URL="${{ secrets.MOEMAIL_URL }}"
+          SKYMAIL_URL="${{ secrets.SKYMAIL_URL }}"
+          
+          if [ -n "${{ secrets.MOEMAIL_API_KEY }}" ]; then
+            HAS_MOEMAIL=true
+            echo "✅ MoeMail 已配置"
+            
+            # 设置默认 URL
+            if [ -z "$MOEMAIL_URL" ]; then
+              MOEMAIL_URL="https://email.959585.xyz"
+              echo "   ℹ️  MOEMAIL_URL 未配置，将使用默认值: $MOEMAIL_URL"
+            else
+              echo "   ℹ️  MOEMAIL_URL: $MOEMAIL_URL"
+            fi
+          fi
+          
+          if [ -n "${{ secrets.SKYMAIL_TOKEN }}" ]; then
+            HAS_SKYMAIL=true
+            echo "✅ Skymail 已配置"
+            
+            if [ -z "$SKYMAIL_URL" ]; then
+              echo "   ⚠️  SKYMAIL_URL 未配置，Skymail 可能无法使用"
+            else
+              echo "   ℹ️  SKYMAIL_URL: $SKYMAIL_URL"
+            fi
+            
+            if [ -n "${{ secrets.SKYMAIL_DOMAIN }}" ]; then
+              echo "   ℹ️  SKYMAIL_DOMAIN: ${{ secrets.SKYMAIL_DOMAIN }}"
+            else
+              echo "   ℹ️  SKYMAIL_DOMAIN 未配置，将使用服务器默认域名"
+            fi
+          fi
+          
+          # 至少需要一个邮箱服务
+          if [ "$HAS_MOEMAIL" = false ] && [ "$HAS_SKYMAIL" = false ]; then
+            echo ""
+            echo "❌ 至少需要配置一个邮箱服务"
+            echo ""
+            echo "请配置以下 Secrets 之一："
+            echo "  - MOEMAIL_API_KEY (MoeMail 服务)"
+            echo "  - SKYMAIL_TOKEN (Skymail 服务)"
+            echo ""
+            echo "推荐配置两个服务以实现自动故障转移"
+            exit 1
+          fi
+          
+          echo ""
+          echo "=========================================="
+          echo "  步骤 2: 检查邮箱服务健康度"
+          echo "=========================================="
+          
+          # 健康检查函数
+          check_service_health() {
+            local service_name=$1
+            local url=$2
+            local max_retries=3
+            local retry_delay=2
+            
+            echo ""
+            echo "🔍 检查 $service_name 服务..."
+            
+            for i in $(seq 1 $max_retries); do
+              echo "   尝试 $i/$max_retries..."
+              
+              # 使用 curl 检查服务（超时 5 秒）
+              if curl -s --max-time 5 "$url" > /dev/null 2>&1; then
+                echo "   ✅ $service_name 服务可用"
+                return 0
+              else
+                if [ $i -lt $max_retries ]; then
+                  echo "   ⚠️  连接失败，${retry_delay}秒后重试..."
+                  sleep $retry_delay
+                fi
+              fi
+            done
+            
+            echo "   ❌ $service_name 服务不可用（尝试 $max_retries 次后失败）"
+            return 1
+          }
+          
+          # 检查已配置的服务
+          MOEMAIL_HEALTHY=false
+          SKYMAIL_HEALTHY=false
+          
+          if [ "$HAS_MOEMAIL" = true ]; then
+            if check_service_health "MoeMail" "$MOEMAIL_URL/api/config"; then
+              MOEMAIL_HEALTHY=true
+            fi
+          fi
+          
+          if [ "$HAS_SKYMAIL" = true ] && [ -n "$SKYMAIL_URL" ]; then
+            # Skymail 使用不同的健康检查端点
+            if check_service_health "Skymail" "$SKYMAIL_URL/api/public/emailList"; then
+              SKYMAIL_HEALTHY=true
+            fi
+          fi
+          
+          # 至少需要一个服务健康
+          if [ "$MOEMAIL_HEALTHY" = false ] && [ "$SKYMAIL_HEALTHY" = false ]; then
+            echo ""
+            echo "=========================================="
+            echo "  ⚠️  警告：所有邮箱服务都不可用"
+            echo "=========================================="
+            echo ""
+            echo "已配置的服务都无法连接，可能的原因："
+            echo "  1. 服务暂时不可用（维护中）"
+            echo "  2. 网络连接问题"
+            echo "  3. URL 配置错误"
+            echo "  4. 服务器防火墙限制"
+            echo ""
+            echo "建议："
+            echo "  - 检查服务是否正常运行"
+            echo "  - 验证 URL 配置是否正确"
+            echo "  - 稍后重试"
+            echo ""
+            echo "⚠️  工作流将继续执行，但注册可能失败"
+            echo ""
+          fi
+          
+          # 显示将使用的模式和健康状态
+          echo ""
+          echo "=========================================="
+          echo "  邮箱服务状态总结"
+          echo "=========================================="
+          
+          if [ "$HAS_MOEMAIL" = true ] && [ "$HAS_SKYMAIL" = true ]; then
+            echo "📋 配置模式: AUTO（自动选择 + 故障转移）"
+          elif [ "$HAS_MOEMAIL" = true ]; then
+            echo "📋 配置模式: MOEMAIL"
+          else
+            echo "📋 配置模式: SKYMAIL"
+          fi
+          
+          echo ""
+          echo "服务健康状态："
+          if [ "$HAS_MOEMAIL" = true ]; then
+            if [ "$MOEMAIL_HEALTHY" = true ]; then
+              echo "  ✅ MoeMail - 可用"
+            else
+              echo "  ❌ MoeMail - 不可用"
+            fi
+          fi
+          
+          if [ "$HAS_SKYMAIL" = true ]; then
+            if [ "$SKYMAIL_HEALTHY" = true ]; then
+              echo "  ✅ Skymail - 可用"
+            else
+              echo "  ❌ Skymail - 不可用"
+            fi
+          fi
+          
+          echo ""
+          if [ "$MOEMAIL_HEALTHY" = true ] || [ "$SKYMAIL_HEALTHY" = true ]; then
+            echo "✅ 至少有一个邮箱服务可用，配置检查通过"
+          else
+            echo "⚠️  配置检查完成，但所有服务都不可用"
+          fi
+          echo "=========================================="
+      
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -121,10 +316,53 @@ jobs:
       
       - name: Configure environment
         run: |
+          # 检测配置了哪些邮箱服务
+          HAS_MOEMAIL=false
+          HAS_SKYMAIL=false
+          
+          if [ -n "${{ secrets.MOEMAIL_API_KEY }}" ]; then
+            HAS_MOEMAIL=true
+            echo "✅ 检测到 MoeMail 配置"
+          fi
+          
+          if [ -n "${{ secrets.SKYMAIL_TOKEN }}" ]; then
+            HAS_SKYMAIL=true
+            echo "✅ 检测到 Skymail 配置"
+          fi
+          
+          # 至少需要一个邮箱服务
+          if [ "$HAS_MOEMAIL" = false ] && [ "$HAS_SKYMAIL" = false ]; then
+            echo "❌ 至少需要配置一个邮箱服务（MOEMAIL_API_KEY 或 SKYMAIL_TOKEN）"
+            exit 1
+          fi
+          
+          # 确定 EMAIL_SERVICE 模式
+          if [ "$HAS_MOEMAIL" = true ] && [ "$HAS_SKYMAIL" = true ]; then
+            EMAIL_SERVICE="auto"
+            echo "🎲 两个邮箱服务都已配置，使用 auto 模式（自动选择 + 故障转移）"
+          elif [ "$HAS_MOEMAIL" = true ]; then
+            EMAIL_SERVICE="moemail"
+            echo "📧 使用 MoeMail 服务"
+          else
+            EMAIL_SERVICE="skymail"
+            echo "📧 使用 Skymail 服务"
+          fi
+          
+          # 验证 Firebase API Key
+          if [ -z "${{ secrets.FIREBASE_API_KEY }}" ]; then
+            echo "❌ FIREBASE_API_KEY 未配置"
+            exit 1
+          fi
+          
           # 创建 .env 文件
           cat > .env << EOF
+          EMAIL_SERVICE=$EMAIL_SERVICE
           MOEMAIL_URL=${{ secrets.MOEMAIL_URL || 'https://email.959585.xyz' }}
           MOEMAIL_API_KEY=${{ secrets.MOEMAIL_API_KEY }}
+          SKYMAIL_URL=${{ secrets.SKYMAIL_URL || '' }}
+          SKYMAIL_TOKEN=${{ secrets.SKYMAIL_TOKEN || '' }}
+          SKYMAIL_DOMAIN=${{ secrets.SKYMAIL_DOMAIN || '' }}
+          SKYMAIL_WILDCARD=${{ secrets.SKYMAIL_WILDCARD || 'false' }}
           FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}
           WARP_LOGIN_URL=https://app.warp.dev/referral/EWP6QD
           HEADLESS=true
@@ -137,17 +375,6 @@ jobs:
           REGISTER_COUNT=1
           REGISTER_INTERVAL=5
           EOF
-          
-          # 验证必需的环境变量
-          if [ -z "${{ secrets.MOEMAIL_API_KEY }}" ]; then
-            echo "❌ MOEMAIL_API_KEY 未配置"
-            exit 1
-          fi
-          
-          if [ -z "${{ secrets.FIREBASE_API_KEY }}" ]; then
-            echo "❌ FIREBASE_API_KEY 未配置"
-            exit 1
-          fi
           
           echo "✅ 环境配置完成"
       
@@ -167,9 +394,26 @@ jobs:
           OLD_COUNT="${{ steps.download.outputs.old_count }}"
           echo "📊 已有账号数: $OLD_COUNT"
           
-          # 使用批量注册脚本，每次增加 6 个账号
-          echo "🚀 开始批量注册（目标增加 6 个账号）..."
-          xvfb-run -a python batch_register.py --add 6 --headless true --max-fails 6 2>&1 | tee registration.log
+          # 获取注册参数（手动触发时可自定义，定时任务使用环境变量默认值）
+          if [ -n "${{ github.event.inputs.register_count }}" ]; then
+            REGISTER_COUNT="${{ github.event.inputs.register_count }}"
+          else
+            REGISTER_COUNT="${{ env.DEFAULT_REGISTER_COUNT }}"
+          fi
+          
+          if [ -n "${{ github.event.inputs.max_fails }}" ]; then
+            MAX_FAILS="${{ github.event.inputs.max_fails }}"
+          else
+            MAX_FAILS="${{ env.DEFAULT_MAX_FAILS }}"
+          fi
+          
+          echo "📝 注册参数："
+          echo "  - 注册数量: $REGISTER_COUNT"
+          echo "  - 最大连续失败次数: $MAX_FAILS"
+          
+          # 使用批量注册脚本
+          echo "🚀 开始批量注册（目标增加 $REGISTER_COUNT 个账号）..."
+          xvfb-run -a python batch_register.py --add "$REGISTER_COUNT" --headless true --max-fails "$MAX_FAILS" 2>&1 | tee registration.log
           
           # 保存退出码
           EXIT_CODE=${PIPESTATUS[0]}
