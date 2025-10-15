@@ -81,7 +81,7 @@ def reset_linux():
     """Linux 系统重置"""
     log("开始软件初始化...")
     
-    # 1. 删除配置目录
+    # 1. 删除 Warp 配置目录
     config_dirs = [
         os.path.expanduser("~/.config/warp"),
         os.path.expanduser("~/.local/share/warp"),
@@ -98,6 +98,144 @@ def reset_linux():
                 log(f"⚠️ 删除配置目录失败: {e}")
         else:
             log(f"配置目录不存在: {config_dir}")
+    
+    # 2. 修改系统机器码（需要 root 权限）
+    log("正在修改系统机器码...")
+    
+    try:
+        import subprocess
+        import secrets
+        
+        # 生成随机的 machine-id
+        random_machine_id = secrets.token_hex(16)
+        log(f"新的 machine-id: {random_machine_id}")
+        
+        # 修改 /etc/machine-id
+        try:
+            subprocess.run(
+                ['sudo', 'tee', '/etc/machine-id'],
+                input=random_machine_id.encode(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                check=True
+            )
+            log("已修改 /etc/machine-id")
+        except subprocess.CalledProcessError as e:
+            log(f"⚠️ 修改 /etc/machine-id 失败: {e.stderr.decode() if e.stderr else str(e)}")
+        except Exception as e:
+            log(f"⚠️ 修改 /etc/machine-id 失败: {e}")
+        
+        # 修改 /var/lib/dbus/machine-id（如果存在）
+        dbus_machine_id = '/var/lib/dbus/machine-id'
+        if os.path.exists(dbus_machine_id):
+            try:
+                subprocess.run(
+                    ['sudo', 'tee', dbus_machine_id],
+                    input=random_machine_id.encode(),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    check=True
+                )
+                log("已修改 /var/lib/dbus/machine-id")
+            except subprocess.CalledProcessError as e:
+                log(f"⚠️ 修改 /var/lib/dbus/machine-id 失败: {e.stderr.decode() if e.stderr else str(e)}")
+            except Exception as e:
+                log(f"⚠️ 修改 /var/lib/dbus/machine-id 失败: {e}")
+        
+        # 生成随机的 hostname
+        random_suffix = secrets.token_hex(4)
+        random_hostname = f"warp-{random_suffix}"
+        log(f"新的 hostname: {random_hostname}")
+        
+        # 修改当前 hostname
+        try:
+            subprocess.run(
+                ['sudo', 'hostname', random_hostname],
+                stderr=subprocess.PIPE,
+                check=True
+            )
+            log("已修改当前 hostname")
+        except subprocess.CalledProcessError as e:
+            log(f"⚠️ 修改当前 hostname 失败: {e.stderr.decode() if e.stderr else str(e)}")
+        except Exception as e:
+            log(f"⚠️ 修改当前 hostname 失败: {e}")
+        
+        # 修改 /etc/hostname
+        try:
+            subprocess.run(
+                ['sudo', 'tee', '/etc/hostname'],
+                input=random_hostname.encode(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                check=True
+            )
+            log("已修改 /etc/hostname")
+        except subprocess.CalledProcessError as e:
+            log(f"⚠️ 修改 /etc/hostname 失败: {e.stderr.decode() if e.stderr else str(e)}")
+        except Exception as e:
+            log(f"⚠️ 修改 /etc/hostname 失败: {e}")
+        
+        # 清理系统缓存
+        log("正在清理系统缓存...")
+        
+        # 清理 systemd random-seed
+        try:
+            subprocess.run(
+                ['sudo', 'rm', '-rf', '/var/lib/systemd/random-seed'],
+                stderr=subprocess.PIPE,
+                check=False  # 文件可能不存在，不强制检查
+            )
+            log("已清理 systemd random-seed")
+        except Exception as e:
+            log(f"⚠️ 清理 systemd random-seed 失败: {e}")
+        
+        # 清理用户缓存
+        cache_dir = os.path.expanduser("~/.cache")
+        if os.path.exists(cache_dir):
+            try:
+                for item in os.listdir(cache_dir):
+                    item_path = os.path.join(cache_dir, item)
+                    try:
+                        if os.path.isdir(item_path):
+                            shutil.rmtree(item_path)
+                        else:
+                            os.remove(item_path)
+                    except Exception:
+                        pass  # 忽略单个文件的删除失败
+                log("已清理用户缓存目录")
+            except Exception as e:
+                log(f"⚠️ 清理用户缓存失败: {e}")
+        
+        # 清理 ChromeDriver 缓存
+        log("正在清理 ChromeDriver 缓存...")
+        
+        chromedriver_cache = os.path.expanduser("~/.undetected_chromedriver")
+        if os.path.exists(chromedriver_cache):
+            try:
+                shutil.rmtree(chromedriver_cache)
+                log("已清理 ChromeDriver 缓存")
+            except Exception as e:
+                log(f"⚠️ 清理 ChromeDriver 缓存失败: {e}")
+        
+        # 清理 Chrome 临时文件
+        chrome_temp_pattern = "/tmp/.com.google.Chrome.*"
+        try:
+            subprocess.run(
+                ['rm', '-rf'] + [chrome_temp_pattern],
+                shell=True,
+                stderr=subprocess.PIPE,
+                check=False
+            )
+            log("已清理 Chrome 临时文件")
+        except Exception as e:
+            log(f"⚠️ 清理 Chrome 临时文件失败: {e}")
+        
+        log("系统机器码修改完成")
+        
+    except ImportError:
+        log("⚠️ 缺少必要的模块，跳过机器码修改")
+    except Exception as e:
+        log(f"⚠️ 修改系统机器码失败: {e}")
     
     log("软件初始化成功完成")
 
