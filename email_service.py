@@ -32,6 +32,14 @@ class EmailService:
         """
         self.original_service_type = service_type.lower()
         self.session = requests.Session()
+        
+        # 配置 SSL 验证（适用于自建服务）
+        self.session.verify = False
+        
+        # 禁用 SSL 警告
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
         self.token = None  # Skymail 使用
         self.retry_count = 0  # 当前重试次数
         self.max_retries = 2  # 最大重试次数（切换服务）
@@ -234,7 +242,6 @@ class EmailService:
                         'num': 1,
                         'size': 1
                     },
-                    verify=False,
                     timeout=3
                 )
                 
@@ -485,7 +492,7 @@ class EmailService:
                 ]
             }
             
-            response = self.session.post(url, json=data, headers=headers, verify=False, timeout=30)
+            response = self.session.post(url, json=data, headers=headers, timeout=30)
             
             if response.status_code != 200:
                 print(f"❌ 创建失败: HTTP {response.status_code}")
@@ -601,7 +608,7 @@ class EmailService:
                     "size": 20
                 }
                 
-                response = self.session.post(url, json=data, headers=headers, verify=False, timeout=30)
+                response = self.session.post(url, json=data, headers=headers, timeout=30)
                 
                 if response.status_code == 200:
                     result = response.json()
