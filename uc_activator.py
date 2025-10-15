@@ -129,6 +129,11 @@ class UCActivator:
             proxy_server = proxy_server.replace('http://', '').replace('https://', '')
             options.add_argument(f'--proxy-server={proxy_server}')
             print(f"  使用代理: {proxy_server}")
+            
+            # 排除本地地址不走代理（避免 ChromeDriver 连接失败）
+            no_proxy = os.environ.get('NO_PROXY', 'localhost,127.0.0.1,::1')
+            options.add_argument(f'--proxy-bypass-list={no_proxy}')
+            print(f"  代理排除列表: {no_proxy}")
         
         print("  初始化 undetected-chromedriver...")
         print("  注意: 首次运行会自动下载匹配的 ChromeDriver, 可能需要 30-60 秒")

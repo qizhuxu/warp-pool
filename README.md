@@ -312,11 +312,62 @@ python reset_warp.py
 - 操作前会要求确认
 - 重置后 Warp 将识别为新设备
 
+## 代理配置（中国大陆用户必读）
+
+### 为什么需要代理？
+
+本项目需要访问 Google Firebase API (`securetoken.googleapis.com`)，该服务在中国大陆被封锁，必须使用代理。
+
+### 推荐配置：TUN 模式 ✅
+
+**最简单、最稳定的方式**
+
+1. 在代理软件中开启 TUN 模式：
+   - **Clash**: Settings → TUN Mode → Enable
+   - **V2Ray**: Preferences → Core → Enable TUN
+   - **Shadowsocks**: 系统代理 → 全局模式
+
+2. 直接运行程序，无需任何配置：
+   ```bash
+   python register.py
+   ```
+
+**优点：**
+- ✅ 无需配置环境变量
+- ✅ 所有网络流量自动代理
+- ✅ 包括 DNS 查询
+- ✅ 最稳定可靠
+
+### 备选方案：系统代理模式（不推荐）
+
+如果无法使用 TUN 模式，可以尝试系统代理：
+
+```powershell
+# Windows PowerShell
+$env:HTTP_PROXY = 'http://127.0.0.1:10808'
+$env:HTTPS_PROXY = 'http://127.0.0.1:10808'
+$env:NO_PROXY = 'localhost,127.0.0.1,::1'
+
+python register.py
+```
+
+**注意：**
+- ⚠️ 可能出现连接超时
+- ⚠️ DNS 解析可能失败
+- ⚠️ 不如 TUN 模式稳定
+
+### 海外用户
+
+无需配置代理，直接运行即可。
+
+---
+
 ## 提高成功率
 
-1. **使用高质量代理**（最重要）
-   - 住宅代理 > 数据中心代理
-   - 配置在 .env 文件中
+1. **使用稳定的代理**（中国大陆用户必需）
+   - 推荐使用 TUN 模式
+   - 确保代理稳定可用
+   - 避免频繁切换代理
 
 2. **降低注册频率**
    - 每次注册间隔 30-60 分钟

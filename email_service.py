@@ -33,12 +33,27 @@ class EmailService:
         self.original_service_type = service_type.lower()
         self.session = requests.Session()
         
-        # 配置 SSL 验证（适用于自建服务）
-        self.session.verify = False
-        
         # 禁用 SSL 警告
         import urllib3
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+        # 配置 SSL 验证（适用于自建服务）
+        # 使用自定义 HTTPAdapter 确保在代理环境下也能正确禁用 SSL 验证
+        from requests.adapters import HTTPAdapter
+        from urllib3.poolmanager import PoolManager
+        import ssl
+        
+        class SSLAdapter(HTTPAdapter):
+            def init_poolmanager(self, *args, **kwargs):
+                context = ssl.create_default_context()
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+                kwargs['ssl_context'] = context
+                return super().init_poolmanager(*args, **kwargs)
+        
+        # 为 http 和 https 都挂载自定义适配器
+        self.session.mount('https://', SSLAdapter())
+        self.session.mount('http://', SSLAdapter())
         
         self.token = None  # Skymail 使用
         self.retry_count = 0  # 当前重试次数
@@ -202,7 +217,12 @@ class EmailService:
                     return False
                 
                 url = f"{config.MOEMAIL_URL.rstrip('/')}/api/config"
-                response = requests.get(
+                
+                # 创建临时 session 用于健康检查
+                temp_session = requests.Session()
+                temp_session.verify = False
+                
+                response = temp_session.get(
                     url,
                     headers={'X-API-Key': config.MOEMAIL_API_KEY},
                     timeout=3
@@ -224,11 +244,15 @@ class EmailService:
                 test_domain = domains[0] if domains else 'qixc.pp.ua'
                 test_email = f"healthcheck@{test_domain}"
                 
+                # 创建临时 session 用于健康检查
+                temp_session = requests.Session()
+                temp_session.verify = False
+                
                 # 禁用 SSL 警告
                 import urllib3
                 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
                 
-                response = requests.post(
+                response = temp_session.post(
                     url,
                     headers={
                         'Authorization': skymail_token,

@@ -288,7 +288,8 @@ def register_single_account(headless: bool = None) -> Dict[str, Any]:
                                     json={
                                         'grant_type': 'refresh_token',
                                         'refresh_token': refresh_token
-                                    }
+                                    },
+                                    timeout=30  # 添加 30 秒超时
                                 )
                                 
                                 if response.status_code == 200:
@@ -480,7 +481,8 @@ def register_single_account(headless: bool = None) -> Dict[str, Any]:
                                 }
                             },
                             "operationName": "GetRequestLimitInfo"
-                        }
+                        },
+                        timeout=30  # 添加 30 秒超时
                     )
                     
                     print(f"  响应状态码: {quota_response.status_code}")
