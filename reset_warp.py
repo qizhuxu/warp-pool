@@ -34,7 +34,9 @@ def reset_windows():
     for hkey, path in registry_paths:
         try:
             winreg.DeleteKey(hkey, path)
-            log(f"已删除: 注册表项{path.replace('Software\\', '')}")
+            # 先计算路径，避免 f-string 中使用反斜杠
+            cleaned_path = path.replace('Software\\', '')
+            log(f"已删除: 注册表项{cleaned_path}")
         except FileNotFoundError:
             # 注册表项不存在，跳过
             pass
