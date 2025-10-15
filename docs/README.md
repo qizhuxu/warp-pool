@@ -9,9 +9,10 @@
 
 ### 📖 技术文档
 
-- **[实现总结](./IMPLEMENTATION_SUMMARY.md)** - 增强指纹模拟实现总结 🎯
+- **[Verisoul 反检测增强指南](./verisoul-enhancement-guide.md)** - 完整的技术实现细节
 - **[配置对比](./configuration-comparison.md)** - 主项目 vs warp-pool 详细对比
-- **[指纹随机化说明](./FINGERPRINT.md)** - 浏览器指纹随机化功能详解
+- **[批量注册说明](./BATCH_REGISTER.md)** - 批量注册功能使用指南
+- **[重置 Warp 机器码](./RESET_WARP.md)** - 重置设备标识符
 
 ---
 
@@ -146,10 +147,22 @@ FINGERPRINT_DEBUG=false
 
 ## 📚 详细文档
 
-- [浏览器指纹配置指南](./fingerprint-config-guide.md) - 参数详解
-- [配置对比文档](./configuration-comparison.md) - 技术对比
+### 核心文档
+- [浏览器指纹配置指南](./fingerprint-config-guide.md) - 参数详解和级别对比
+- [Verisoul 反检测增强指南](./verisoul-enhancement-guide.md) - 技术实现细节
+- [配置对比文档](./configuration-comparison.md) - 不同方案的技术对比
+
+### 功能文档
+- [批量注册说明](./BATCH_REGISTER.md) - 批量注册到指定数量
+- [重置 Warp 机器码](./RESET_WARP.md) - 重置设备标识符
+- [Chrome 版本配置](./CHROME_VERSION.md) - Chrome 版本管理
+- [容器化部署](./CONTAINERIZATION_SUMMARY.md) - Docker 部署指南
+
+### 参考文档
+- [快速参考](./QUICK_REFERENCE.md) - 常用命令速查
+- [默认配置](./DEFAULT_CONFIG.md) - 默认配置说明
 
 ---
 
-**最后更新：** 2025-10-14  
-**版本：** 2.0.0（简化版）
+**最后更新：** 2025-10-15  
+**版本：** 2.1.0

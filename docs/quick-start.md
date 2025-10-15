@@ -4,7 +4,7 @@
 
 ### 步骤 1：编辑配置文件
 
-编辑 `warp-pool/.env` 文件，添加以下配置：
+编辑 `.env` 文件，添加以下配置：
 
 ```bash
 # ==================== 浏览器指纹配置 ====================
@@ -22,7 +22,6 @@ FINGERPRINT_DEBUG=false
 ### 步骤 2：测试配置（可选）
 
 ```bash
-cd warp-pool
 python test_fingerprint.py
 ```
 
@@ -45,7 +44,11 @@ python test_fingerprint.py
 ### 步骤 3：开始注册
 
 ```bash
-python register.py --count 5
+# 单个账号
+python register.py
+
+# 批量注册（增加 5 个账号）
+python batch_register.py --add 5
 ```
 
 观察成功率是否提升到 **90-98%**。
@@ -160,13 +163,36 @@ FINGERPRINT_LEVEL=balanced
 
 ---
 
-## 📚 更多信息
+## 🔧 高级配置
 
-详细的技术文档请参考：
-- [浏览器指纹配置指南](./fingerprint-config-guide.md)
-- [配置对比文档](./configuration-comparison.md)
+### 自定义指纹级别
+
+如果需要更精细的控制，可以使用以下环境变量：
+
+```bash
+# 增强功能（balanced 级别自动启用）
+ENHANCED_PROFILES_ENABLED=true
+WEBGL_SPOOFING_ENABLED=true
+PERFORMANCE_TIMING_ENABLED=true
+ENHANCED_NAVIGATOR_ENABLED=true
+AUDIO_CONTEXT_SPOOFING_ENABLED=false  # aggressive 级别才启用
+
+# 一致性检查
+STRICT_CONSISTENCY_CHECK=true
+```
+
+**注意：** 通常不需要手动配置这些，`FINGERPRINT_LEVEL` 会自动处理。
 
 ---
 
-**最后更新：** 2025-10-14  
-**版本：** 2.0.0（简化版）
+## 📚 更多信息
+
+详细的技术文档请参考：
+- [浏览器指纹配置指南](./fingerprint-config-guide.md) - 完整的参数说明
+- [Verisoul 反检测增强指南](./verisoul-enhancement-guide.md) - 技术细节
+- [配置对比文档](./configuration-comparison.md) - 不同配置的对比
+
+---
+
+**最后更新：** 2025-10-15  
+**版本：** 2.1.0
