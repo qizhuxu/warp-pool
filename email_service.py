@@ -73,6 +73,8 @@ class EmailService:
         
         if self.service_type == 'skymail':
             self._init_skymail()
+        elif self.service_type == 'gptmail':
+            self._init_gptmail()
         else:
             self._init_moemail()
     
@@ -84,7 +86,7 @@ class EmailService:
             exclude_services: 要排除的服务列表
             
         Returns:
-            选中的服务类型 ('moemail' 或 'skymail')
+            选中的服务类型 ('moemail', 'skymail', 或 'gptmail')
         """
         if exclude_services is None:
             exclude_services = []
@@ -111,6 +113,16 @@ class EmailService:
             elif not self._is_service_failed('skymail'):
                 available_services.append('skymail')
         
+        # 检查 GPTMail（始终可用，无需配置）
+        if 'gptmail' not in exclude_services:
+            # 第一层：检查健康检查结果（实例级别）
+            if not self._health_check_results.get('gptmail', True):
+                # 健康检查失败，跳过
+                pass
+            # 第二层：检查运行时失败记录（类级别）
+            elif not self._is_service_failed('gptmail'):
+                available_services.append('gptmail')
+        
         if not available_services:
             # 如果所有服务都失败了，清除失败记录并重试
             print("⚠️ 所有服务都暂时不可用，清除失败记录并重试...")
@@ -121,10 +133,12 @@ class EmailService:
                 available_services.append('moemail')
             if config.SKYMAIL_TOKEN and 'skymail' not in exclude_services:
                 available_services.append('skymail')
+            if 'gptmail' not in exclude_services:
+                available_services.append('gptmail')
             
             if not available_services:
-                print("⚠️ 没有可用的邮箱服务，使用默认 moemail")
-                return 'moemail'
+                print("⚠️ 没有可用的邮箱服务，使用默认 gptmail")
+                return 'gptmail'
         
         # 随机选择一个服务
         selected = random.choice(available_services)
@@ -205,7 +219,7 @@ class EmailService:
         检查服务健康状态
         
         Args:
-            service_name: 服务名称 ('moemail' 或 'skymail')
+            service_name: 服务名称 ('moemail', 'skymail', 或 'gptmail')
             
         Returns:
             True 如果服务可用
@@ -273,6 +287,42 @@ class EmailService:
                     result = response.json()
                     return result.get('code') == 200
                 return False
+            
+            elif service_name == 'gptmail':
+                # 检查 GPTMail
+                gptmail_url = getattr(config, 'GPTMAIL_URL', 'https://mail.chatgpt.org.uk')
+                url = f"{gptmail_url.rstrip('/')}/api/generate-email"
+                
+                # 创建临时 session 用于健康检查
+                temp_session = requests.Session()
+                temp_session.verify = False
+                
+                # 禁用 SSL 警告
+                import urllib3
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                
+                # 配置 SSL 适配器
+                from requests.adapters import HTTPAdapter
+                from urllib3.poolmanager import PoolManager
+                import ssl
+                
+                class SSLAdapter(HTTPAdapter):
+                    def init_poolmanager(self, *args, **kwargs):
+                        context = ssl.create_default_context()
+                        context.check_hostname = False
+                        context.verify_mode = ssl.CERT_NONE
+                        kwargs['ssl_context'] = context
+                        return super().init_poolmanager(*args, **kwargs)
+                
+                temp_session.mount('https://', SSLAdapter())
+                temp_session.mount('http://', SSLAdapter())
+                
+                response = temp_session.get(url, timeout=3)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    return 'email' in result
+                return False
                 
         except Exception:
             return False
@@ -287,6 +337,8 @@ class EmailService:
             services_to_check.append('moemail')
         if getattr(config, 'SKYMAIL_TOKEN', ''):
             services_to_check.append('skymail')
+        # GPTMail 始终检查（无需配置）
+        services_to_check.append('gptmail')
         
         if not services_to_check:
             return
@@ -347,6 +399,13 @@ class EmailService:
         
         self.session.mount('https://', SSLAdapter())
     
+    def _init_gptmail(self):
+        """初始化 GPTMail 服务"""
+        self.base_url = getattr(config, 'GPTMAIL_URL', 'https://mail.chatgpt.org.uk').rstrip('/')
+        
+        # GPTMail 无需 API Key，直接使用公开服务
+        # 不需要设置特殊的 headers
+    
     def create_email(self, prefix: str = None, domain: str = None) -> Optional[Dict[str, Any]]:
         """创建临时邮箱（支持故障转移）"""
         print("📧 创建临时邮箱...")
@@ -393,6 +452,8 @@ class EmailService:
         """内部创建邮箱方法"""
         if self.service_type == 'skymail':
             return self._create_skymail(prefix, domain)
+        elif self.service_type == 'gptmail':
+            return self._create_gptmail(prefix, domain)
         else:
             return self._create_moemail(prefix, domain)
     
@@ -547,6 +608,51 @@ class EmailService:
             traceback.print_exc()
             return None
     
+    def _create_gptmail(self, prefix: str = None, domain: str = None) -> Optional[Dict[str, Any]]:
+        """使用 GPTMail 创建邮箱"""
+        try:
+            # GPTMail 自动生成邮箱，不支持自定义前缀和域名
+            url = f"{self.base_url}/api/generate-email"
+            
+            response = self.session.get(url, timeout=10)
+            
+            if response.status_code != 200:
+                print(f"❌ 创建失败: HTTP {response.status_code}")
+                print(f"   响应: {response.text[:200]}")
+                return None
+            
+            result = response.json()
+            
+            if not result.get('email'):
+                print(f"❌ 响应中没有邮箱地址")
+                return None
+            
+            email_address = result['email']
+            
+            # 解析邮箱地址
+            if '@' in email_address:
+                prefix_part, domain_part = email_address.split('@', 1)
+            else:
+                prefix_part = email_address
+                domain_part = 'unknown'
+            
+            email_info = {
+                "id": email_address,  # GPTMail 使用邮箱地址作为 ID
+                "address": email_address,
+                "prefix": prefix_part,
+                "domain": domain_part,
+                "service": "gptmail"
+            }
+            
+            print(f"✅ 邮箱创建成功: {email_info['address']}")
+            return email_info
+            
+        except Exception as e:
+            print(f"❌ 创建邮箱失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
     def wait_for_email(self, email_info: Dict[str, Any], timeout: int = None) -> Optional[Dict[str, Any]]:
         """等待接收邮件"""
         if timeout is None:
@@ -558,6 +664,8 @@ class EmailService:
         
         if service == 'skymail':
             return self._wait_for_skymail(email_info['address'], timeout)
+        elif service == 'gptmail':
+            return self._wait_for_gptmail(email_info['address'], timeout)
         else:
             return self._wait_for_moemail(email_info['id'], timeout)
     
@@ -653,6 +761,54 @@ class EmailService:
                                     }
                             
                             print(f"  ⚠️ 没有找到匹配的验证邮件")
+                
+                elapsed = int(time.time() - start_time)
+                if check_count % 2 == 0:
+                    print(f"  ⏳ 检查中... ({elapsed}/{timeout}秒)")
+                
+                sleep_time = 3 if elapsed < 30 else 5
+                time.sleep(sleep_time)
+                
+            except Exception as e:
+                print(f"⚠️ 检查邮件出错: {e}")
+                time.sleep(5)
+        
+        print("❌ 等待邮件超时")
+        return None
+    
+    def _wait_for_gptmail(self, email_address: str, timeout: int) -> Optional[Dict[str, Any]]:
+        """等待 GPTMail 邮件"""
+        start_time = time.time()
+        check_count = 0
+        
+        while time.time() - start_time < timeout:
+            check_count += 1
+            
+            try:
+                url = f"{self.base_url}/api/get-emails"
+                params = {'email': email_address}
+                response = self.session.get(url, params=params, timeout=10)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    emails = result.get('emails', [])
+                    
+                    if emails:
+                        print(f"  📨 收到 {len(emails)} 封邮件")
+                        
+                        for email in emails:
+                            subject = email.get('subject', '')
+                            if "warp" in subject.lower() or "sign in" in subject.lower():
+                                print(f"  ✅ 找到验证邮件: {subject}")
+                                
+                                # 标准化字段名
+                                return {
+                                    "subject": email.get('subject', ''),
+                                    "html": email.get('htmlContent', email.get('html', '')),
+                                    "text": email.get('content', email.get('text', ''))
+                                }
+                        
+                        print(f"  ⚠️ 没有找到匹配的验证邮件")
                 
                 elapsed = int(time.time() - start_time)
                 if check_count % 2 == 0:

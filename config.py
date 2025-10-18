@@ -14,7 +14,7 @@ class Config:
     """配置类"""
     
     # 邮箱服务配置
-    EMAIL_SERVICE = os.getenv('EMAIL_SERVICE', 'moemail')  # moemail 或 skymail
+    EMAIL_SERVICE = os.getenv('EMAIL_SERVICE', 'gptmail')  # moemail 或 skymail
     
     # MoeMail 配置
     MOEMAIL_URL = os.getenv('MOEMAIL_URL', 'https://email.959585.xyz')
@@ -25,6 +25,9 @@ class Config:
     SKYMAIL_TOKEN = os.getenv('SKYMAIL_TOKEN', '')  # 管理员 Token
     SKYMAIL_DOMAIN = os.getenv('SKYMAIL_DOMAIN', 'qixc.pp.ua')  # 邮箱域名（支持多个域名，逗号分隔）
     SKYMAIL_WILDCARD = os.getenv('SKYMAIL_WILDCARD', 'false').lower() == 'true'  # 通配符模式（无需注册）
+    
+    # GPTMail 配置
+    GPTMAIL_URL = os.getenv('GPTMAIL_URL', 'https://mail.chatgpt.org.uk')
     
     # Firebase 配置
     FIREBASE_API_KEY = os.getenv('FIREBASE_API_KEY', 'AIzaSyBdy3O3S9hrdayLJxJ7mriBR4qgUaUygAs')
@@ -60,14 +63,18 @@ class Config:
         elif self.EMAIL_SERVICE == 'skymail':
             if not self.SKYMAIL_TOKEN:
                 raise ValueError("SKYMAIL_TOKEN must be configured")
+        elif self.EMAIL_SERVICE == 'gptmail':
+            # GPTMail 无需配置，使用公开服务
+            pass
         elif self.EMAIL_SERVICE == 'auto':
             # auto 模式：至少需要配置一个服务
             has_moemail = bool(self.MOEMAIL_API_KEY)
             has_skymail = bool(self.SKYMAIL_TOKEN)
-            if not has_moemail and not has_skymail:
-                raise ValueError("AUTO mode requires at least one email service configured (MOEMAIL_API_KEY or SKYMAIL_TOKEN)")
+            has_gptmail = True  # GPTMail 始终可用
+            if not has_moemail and not has_skymail and not has_gptmail:
+                raise ValueError("AUTO mode requires at least one email service configured")
         else:
-            raise ValueError(f"Invalid EMAIL_SERVICE: {self.EMAIL_SERVICE}. Must be 'moemail', 'skymail', or 'auto'")
+            raise ValueError(f"Invalid EMAIL_SERVICE: {self.EMAIL_SERVICE}. Must be 'moemail', 'skymail', 'gptmail', or 'auto'")
         
         if not self.FIREBASE_API_KEY:
             raise ValueError("FIREBASE_API_KEY not configured")
