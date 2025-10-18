@@ -418,12 +418,12 @@ jobs:
           # 禁用代理，直连 PyPI（GitHub Actions runner 在国外，不需要代理）
           HTTP_PROXY: ""
           HTTPS_PROXY: ""
-          http_proxy: ""
-          https_proxy: ""
           ALL_PROXY: ""
-          all_proxy: ""
+          NO_PROXY: "*"
         run: |
           echo "📦 安装 Python 依赖（不使用代理）..."
+          # 确保清除所有代理环境变量
+          unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY 2>/dev/null || true
           pip install --upgrade pip
           pip install -r requirements.txt
           
