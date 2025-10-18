@@ -218,21 +218,19 @@ jobs:
           elif [[ "$PROXY_URL" == vless://* ]]; then
             echo "📡 检测到 VLESS 协议"
             
-            # 使用 Python 解析 VLESS URL（避免 sed 依赖）
-            python3 -c "
+            # 创建 Python 脚本
+            cat > /tmp/parse_vless.py << 'PYEOF'
             import sys
             import json
+            import os
             from urllib.parse import urlparse, parse_qs, unquote
 
-            proxy_url = '''$PROXY_URL'''
+            proxy_url = os.environ.get('PROXY_URL', '')
             parsed = urlparse(proxy_url)
-
-            # 基本信息
             uuid = parsed.username
             address = parsed.hostname
             port = parsed.port
 
-            # 查询参数
             params = parse_qs(parsed.query)
             security = params.get('security', ['none'])[0]
             sni = params.get('sni', [''])[0]
@@ -249,36 +247,63 @@ jobs:
                 print(f'   WebSocket Host: {host}')
                 print(f'   WebSocket Path: {path}')
 
-            # 构建 streamSettings
             stream_settings = {'network': net_type}
             if security == 'tls':
                 stream_settings['security'] = 'tls'
-                stream_settings['tlsSettings'] = {'serverName': sni, 'allowInsecure': False}
+                stream_settings['tlsSettings'] = {
+                    'serverName': sni,
+                    'allowInsecure': False
+                }
             if net_type == 'ws':
-                stream_settings['wsSettings'] = {'path': path, 'headers': {'Host': host}}
+                stream_settings['wsSettings'] = {
+                    'path': path,
+                    'headers': {'Host': host}
+                }
 
-            # 构建完整配置
             config = {
                 'log': {'loglevel': 'warning'},
                 'inbounds': [
-                    {'port': 10808, 'protocol': 'socks', 'settings': {'auth': 'noauth', 'udp': True}, 'sniffing': {'enabled': True, 'destOverride': ['http', 'tls']}},
-                    {'port': 10809, 'protocol': 'http', 'settings': {}}
+                    {
+                        'port': 10808,
+                        'protocol': 'socks',
+                        'settings': {'auth': 'noauth', 'udp': True},
+                        'sniffing': {'enabled': True, 'destOverride': ['http', 'tls']}
+                    },
+                    {
+                        'port': 10809,
+                        'protocol': 'http',
+                        'settings': {}
+                    }
                 ],
                 'outbounds': [
                     {
                         'protocol': 'vless',
-                        'settings': {'vnext': [{'address': address, 'port': port, 'users': [{'id': uuid, 'encryption': 'none', 'flow': ''}]}]},
+                        'settings': {
+                            'vnext': [{
+                                'address': address,
+                                'port': port,
+                                'users': [{
+                                    'id': uuid,
+                                    'encryption': 'none',
+                                    'flow': ''
+                                }]
+                            }]
+                        },
                         'streamSettings': stream_settings,
                         'tag': 'proxy'
                     },
-                    {'protocol': 'freedom', 'tag': 'direct'}
+                    {
+                        'protocol': 'freedom',
+                        'tag': 'direct'
+                    }
                 ]
             }
 
-            # 写入配置
             with open('xray/config.json', 'w') as f:
                 json.dump(config, f, indent=2)
-            "
+            PYEOF
+            
+            python3 /tmp/parse_vless.py
             echo ""
             echo "✅ VLESS 配置已生成"
             
