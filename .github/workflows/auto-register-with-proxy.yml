@@ -350,14 +350,9 @@ jobs:
             echo "proxy_status=warning" >> $GITHUB_OUTPUT
           fi
           
-          # 设置环境变量
-          echo "HTTP_PROXY=http://127.0.0.1:10809" >> $GITHUB_ENV
-          echo "HTTPS_PROXY=http://127.0.0.1:10809" >> $GITHUB_ENV
-          echo "ALL_PROXY=socks5://127.0.0.1:10808" >> $GITHUB_ENV
-          echo "NO_PROXY=localhost,127.0.0.1,::1" >> $GITHUB_ENV
-          
+          # 不设置全局环境变量，只在需要时使用代理
           echo ""
-          echo "✅ 代理配置完成"
+          echo "✅ 代理配置完成（仅在注册时启用）"
           echo "   SOCKS5: 127.0.0.1:10808"
           echo "   HTTP: 127.0.0.1:10809"
           echo "=========================================="
@@ -419,7 +414,16 @@ jobs:
           google-chrome --version
       
       - name: Install Python dependencies
+        env:
+          # 禁用代理，直连 PyPI（GitHub Actions runner 在国外，不需要代理）
+          HTTP_PROXY: ""
+          HTTPS_PROXY: ""
+          http_proxy: ""
+          https_proxy: ""
+          ALL_PROXY: ""
+          all_proxy: ""
         run: |
+          echo "📦 安装 Python 依赖（不使用代理）..."
           pip install --upgrade pip
           pip install -r requirements.txt
           
@@ -568,8 +572,16 @@ jobs:
           echo "  - 最大连续失败次数: $MAX_FAILS"
           echo "  - 代理模式: Xray (SOCKS5 + HTTP)"
           
-          # 使用批量注册脚本
+          # 使用批量注册脚本（启用代理）
           echo "🚀 开始批量注册（目标增加 $REGISTER_COUNT 个账号）..."
+          echo "🌐 启用代理: SOCKS5://127.0.0.1:10808"
+          
+          # 设置代理环境变量并运行注册
+          export HTTP_PROXY=http://127.0.0.1:10809
+          export HTTPS_PROXY=http://127.0.0.1:10809
+          export ALL_PROXY=socks5://127.0.0.1:10808
+          export NO_PROXY=localhost,127.0.0.1,::1
+          
           xvfb-run -a python batch_register.py --add "$REGISTER_COUNT" --headless true --max-fails "$MAX_FAILS" 2>&1 | tee registration.log
           
           # 保存退出码
