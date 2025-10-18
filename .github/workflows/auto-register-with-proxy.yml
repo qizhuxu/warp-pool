@@ -218,94 +218,54 @@ jobs:
           elif [[ "$PROXY_URL" == vless://* ]]; then
             echo "📡 检测到 VLESS 协议"
             
-            # 创建 Python 脚本
-            cat > /tmp/parse_vless.py << 'PYEOF'
-            import sys
-            import json
-            import os
-            from urllib.parse import urlparse, parse_qs, unquote
-
-            proxy_url = os.environ.get('PROXY_URL', '')
-            parsed = urlparse(proxy_url)
-            uuid = parsed.username
-            address = parsed.hostname
-            port = parsed.port
-
-            params = parse_qs(parsed.query)
-            security = params.get('security', ['none'])[0]
-            sni = params.get('sni', [''])[0]
-            net_type = params.get('type', ['tcp'])[0]
-            host = params.get('host', [''])[0]
-            path = unquote(params.get('path', ['/'])[0])
-
-            print(f'   服务器: {address}:{port}')
-            print(f'   传输协议: {net_type}')
-            print(f'   安全: {security}')
-            if sni:
-                print(f'   SNI: {sni}')
-            if net_type == 'ws':
-                print(f'   WebSocket Host: {host}')
-                print(f'   WebSocket Path: {path}')
-
-            stream_settings = {'network': net_type}
-            if security == 'tls':
-                stream_settings['security'] = 'tls'
-                stream_settings['tlsSettings'] = {
-                    'serverName': sni,
-                    'allowInsecure': False
-                }
-            if net_type == 'ws':
-                stream_settings['wsSettings'] = {
-                    'path': path,
-                    'headers': {'Host': host}
-                }
-
-            config = {
-                'log': {'loglevel': 'warning'},
-                'inbounds': [
-                    {
-                        'port': 10808,
-                        'protocol': 'socks',
-                        'settings': {'auth': 'noauth', 'udp': True},
-                        'sniffing': {'enabled': True, 'destOverride': ['http', 'tls']}
-                    },
-                    {
-                        'port': 10809,
-                        'protocol': 'http',
-                        'settings': {}
-                    }
-                ],
-                'outbounds': [
-                    {
-                        'protocol': 'vless',
-                        'settings': {
-                            'vnext': [{
-                                'address': address,
-                                'port': port,
-                                'users': [{
-                                    'id': uuid,
-                                    'encryption': 'none',
-                                    'flow': ''
-                                }]
-                            }]
-                        },
-                        'streamSettings': stream_settings,
-                        'tag': 'proxy'
-                    },
-                    {
-                        'protocol': 'freedom',
-                        'tag': 'direct'
-                    }
-                ]
-            }
-
-            with open('xray/config.json', 'w') as f:
-                json.dump(config, f, indent=2)
-          PYEOF
+            # 简单解析 VLESS URL
+            VLESS_PART="${PROXY_URL#vless://}"
+            UUID="${VLESS_PART%%@*}"
+            SERVER_PART="${VLESS_PART#*@}"
+            ADDRESS="${SERVER_PART%%:*}"
+            PORT_AND_PARAMS="${SERVER_PART#*:}"
+            PORT="${PORT_AND_PARAMS%%\?*}"
             
-          python3 /tmp/parse_vless.py
-          echo ""
-          echo "✅ VLESS 配置已生成"
+            echo "   服务器: $ADDRESS:$PORT"
+            echo "   UUID: ${UUID:0:8}..."
+            
+            # 添加 VLESS outbound（简化配置）
+            jq '.outbounds = [
+              {
+                "protocol": "vless",
+                "settings": {
+                  "vnext": [{
+                    "address": "'$ADDRESS'",
+                    "port": '$PORT',
+                    "users": [{
+                      "id": "'$UUID'",
+                      "encryption": "none"
+                    }]
+                  }]
+                },
+                "streamSettings": {
+                  "network": "ws",
+                  "security": "tls",
+                  "tlsSettings": {
+                    "serverName": "'$ADDRESS'",
+                    "allowInsecure": false
+                  },
+                  "wsSettings": {
+                    "path": "/",
+                    "headers": {
+                      "Host": "'$ADDRESS'"
+                    }
+                  }
+                },
+                "tag": "proxy"
+              },
+              {
+                "protocol": "freedom",
+                "tag": "direct"
+              }
+            ]' xray/config.json > xray/config.tmp && mv xray/config.tmp xray/config.json
+            
+            echo "✅ VLESS 配置已生成（WebSocket+TLS）"
             
           else
             echo "❌ 不支持的代理协议"
