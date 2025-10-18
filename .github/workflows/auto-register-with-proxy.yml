@@ -220,65 +220,65 @@ jobs:
             
             # 使用 Python 解析 VLESS URL（避免 sed 依赖）
             python3 -c "
-              import sys
-              import json
-              from urllib.parse import urlparse, parse_qs, unquote
+            import sys
+            import json
+            from urllib.parse import urlparse, parse_qs, unquote
 
-              proxy_url = '''$PROXY_URL'''
-              parsed = urlparse(proxy_url)
+            proxy_url = '''$PROXY_URL'''
+            parsed = urlparse(proxy_url)
 
-              # 基本信息
-              uuid = parsed.username
-              address = parsed.hostname
-              port = parsed.port
+            # 基本信息
+            uuid = parsed.username
+            address = parsed.hostname
+            port = parsed.port
 
-              # 查询参数
-              params = parse_qs(parsed.query)
-              security = params.get('security', ['none'])[0]
-              sni = params.get('sni', [''])[0]
-              net_type = params.get('type', ['tcp'])[0]
-              host = params.get('host', [''])[0]
-              path = unquote(params.get('path', ['/'])[0])
+            # 查询参数
+            params = parse_qs(parsed.query)
+            security = params.get('security', ['none'])[0]
+            sni = params.get('sni', [''])[0]
+            net_type = params.get('type', ['tcp'])[0]
+            host = params.get('host', [''])[0]
+            path = unquote(params.get('path', ['/'])[0])
 
-              print(f'   服务器: {address}:{port}')
-              print(f'   传输协议: {net_type}')
-              print(f'   安全: {security}')
-              if sni:
-                  print(f'   SNI: {sni}')
-              if net_type == 'ws':
-                  print(f'   WebSocket Host: {host}')
-                  print(f'   WebSocket Path: {path}')
+            print(f'   服务器: {address}:{port}')
+            print(f'   传输协议: {net_type}')
+            print(f'   安全: {security}')
+            if sni:
+                print(f'   SNI: {sni}')
+            if net_type == 'ws':
+                print(f'   WebSocket Host: {host}')
+                print(f'   WebSocket Path: {path}')
 
-              # 构建 streamSettings
-              stream_settings = {'network': net_type}
-              if security == 'tls':
-                  stream_settings['security'] = 'tls'
-                  stream_settings['tlsSettings'] = {'serverName': sni, 'allowInsecure': False}
-              if net_type == 'ws':
-                  stream_settings['wsSettings'] = {'path': path, 'headers': {'Host': host}}
+            # 构建 streamSettings
+            stream_settings = {'network': net_type}
+            if security == 'tls':
+                stream_settings['security'] = 'tls'
+                stream_settings['tlsSettings'] = {'serverName': sni, 'allowInsecure': False}
+            if net_type == 'ws':
+                stream_settings['wsSettings'] = {'path': path, 'headers': {'Host': host}}
 
-              # 构建完整配置
-              config = {
-                  'log': {'loglevel': 'warning'},
-                  'inbounds': [
-                      {'port': 10808, 'protocol': 'socks', 'settings': {'auth': 'noauth', 'udp': True}, 'sniffing': {'enabled': True, 'destOverride': ['http', 'tls']}},
-                      {'port': 10809, 'protocol': 'http', 'settings': {}}
-                  ],
-                  'outbounds': [
-                      {
-                          'protocol': 'vless',
-                          'settings': {'vnext': [{'address': address, 'port': port, 'users': [{'id': uuid, 'encryption': 'none', 'flow': ''}]}]},
-                          'streamSettings': stream_settings,
-                          'tag': 'proxy'
-                      },
-                      {'protocol': 'freedom', 'tag': 'direct'}
-                  ]
-              }
+            # 构建完整配置
+            config = {
+                'log': {'loglevel': 'warning'},
+                'inbounds': [
+                    {'port': 10808, 'protocol': 'socks', 'settings': {'auth': 'noauth', 'udp': True}, 'sniffing': {'enabled': True, 'destOverride': ['http', 'tls']}},
+                    {'port': 10809, 'protocol': 'http', 'settings': {}}
+                ],
+                'outbounds': [
+                    {
+                        'protocol': 'vless',
+                        'settings': {'vnext': [{'address': address, 'port': port, 'users': [{'id': uuid, 'encryption': 'none', 'flow': ''}]}]},
+                        'streamSettings': stream_settings,
+                        'tag': 'proxy'
+                    },
+                    {'protocol': 'freedom', 'tag': 'direct'}
+                ]
+            }
 
-              # 写入配置
-              with open('xray/config.json', 'w') as f:
-                  json.dump(config, f, indent=2)
-              "
+            # 写入配置
+            with open('xray/config.json', 'w') as f:
+                json.dump(config, f, indent=2)
+            "
             echo ""
             echo "✅ VLESS 配置已生成"
             
