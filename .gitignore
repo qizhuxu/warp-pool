@@ -57,3 +57,5 @@ docker-compose.override.yml
 # Misc
 *.bak
 *.swp
+
+warp_register(1).py

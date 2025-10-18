@@ -34,7 +34,9 @@ class FingerprintRandomizer:
             "hashes": {
                 "prototype_hash": "5051906984991708",
                 "math_hash": "4407615957639726",
-                "offline_audio_hash": "733027540168168"
+                "offline_audio_hash": "733027540168168",
+                "mime_types_hash": "6633968372405724",
+                "errors_hash": "1415081268456649"
             }
         },
         {
@@ -55,7 +57,9 @@ class FingerprintRandomizer:
             "hashes": {
                 "prototype_hash": "4842229194603551",
                 "math_hash": "4407615957639726",
-                "offline_audio_hash": "733027540168168"
+                "offline_audio_hash": "733027540168168",
+                "mime_types_hash": "2795763505992044",
+                "errors_hash": "1415081268456649"
             }
         },
         {
@@ -76,7 +80,9 @@ class FingerprintRandomizer:
             "hashes": {
                 "prototype_hash": "5051906984991708",
                 "math_hash": "4407615957639726",
-                "offline_audio_hash": "733027540168168"
+                "offline_audio_hash": "733027540168168",
+                "mime_types_hash": "6633968372405724",
+                "errors_hash": "1415081268456649"
             }
         }
     ]
@@ -164,6 +170,63 @@ class FingerprintRandomizer:
         'Asia/Tokyo',          # UTC+9
     ]
     
+    # 基础的 Window Keys（简化版，适用于 Linux 环境）
+    BASIC_WINDOW_KEYS = [
+        # 核心 JavaScript 对象
+        "Object", "Function", "Array", "Number", "String", "Boolean", "Symbol", "Date",
+        "Promise", "RegExp", "Error", "Math", "JSON", "console",
+        
+        # Web API - Canvas & WebGL
+        "HTMLCanvasElement", "CanvasRenderingContext2D", "CanvasGradient", "CanvasPattern",
+        "WebGLRenderingContext", "WebGL2RenderingContext", "WebGLBuffer", "WebGLTexture",
+        "WebGLProgram", "WebGLShader", "WebGLFramebuffer", "WebGLRenderbuffer",
+        
+        # Web API - Audio
+        "AudioContext", "AudioBuffer", "AudioBufferSourceNode", "GainNode", "AnalyserNode",
+        "BiquadFilterNode", "DelayNode", "ConvolverNode", "DynamicsCompressorNode",
+        
+        # Web API - WebRTC
+        "RTCPeerConnection", "RTCSessionDescription", "RTCIceCandidate", "RTCDataChannel",
+        "MediaStream", "MediaStreamTrack", "MediaRecorder",
+        
+        # Web API - DOM
+        "Document", "Element", "HTMLElement", "HTMLDocument", "Node", "NodeList",
+        "Event", "EventTarget", "MutationObserver", "ResizeObserver", "IntersectionObserver",
+        
+        # Web API - Network
+        "XMLHttpRequest", "fetch", "Request", "Response", "Headers", "URL", "URLSearchParams",
+        "WebSocket", "EventSource",
+        
+        # Web API - Storage
+        "localStorage", "sessionStorage", "indexedDB", "IDBDatabase", "IDBTransaction",
+        "IDBObjectStore", "IDBRequest",
+        
+        # Web API - Crypto
+        "crypto", "Crypto", "CryptoKey", "SubtleCrypto",
+        
+        # Web API - Performance
+        "performance", "Performance", "PerformanceEntry", "PerformanceNavigation",
+        "PerformanceTiming", "PerformanceObserver",
+        
+        # Web API - Workers
+        "Worker", "SharedWorker", "ServiceWorker", "MessageChannel", "MessagePort",
+        
+        # Browser specific
+        "navigator", "location", "history", "screen", "window", "document",
+        "setTimeout", "setInterval", "requestAnimationFrame", "cancelAnimationFrame",
+        
+        # Modern Web APIs (适用于较新的浏览器)
+        "IntersectionObserver", "MutationObserver", "ResizeObserver", "PerformanceObserver",
+        "BroadcastChannel", "AbortController", "AbortSignal",
+        
+        # WebAssembly
+        "WebAssembly",
+        
+        # 其他常见对象
+        "Image", "Audio", "Option", "FormData", "Blob", "File", "FileReader",
+        "TextEncoder", "TextDecoder", "atob", "btoa"
+    ]
+    
     def __init__(self, platform='windows', level='balanced', enhanced_profiles=True):
         """
         初始化指纹随机化器
@@ -211,7 +274,13 @@ class FingerprintRandomizer:
                     'gpu_renderer': self.profile['gpu_renderer'],
                     'platform': self.profile['platform'],
                     'browser_version': browser_version,
-                    'hashes': self.profile.get('hashes', {})
+                    'hashes': self.profile.get('hashes', {}),
+                    # JS 堆内存信息（基于设备内存调整）
+                    'js_heap_size_limit': self.profile['hardware']['memory'] * 1024 * 1024 * 1024 // 2,  # 内存的一半
+                    'used_js_heap_size': random.randint(10000000, 80000000),  # 10MB-80MB
+                    'total_js_heap_size': random.randint(15000000, 100000000),  # 15MB-100MB
+                    # Window Keys
+                    'window_keys': self.BASIC_WINDOW_KEYS.copy(),
                 }
         
         # 基础模式：随机生成
@@ -232,6 +301,12 @@ class FingerprintRandomizer:
             'timezone': random.choice(self.TIMEZONES),
             'hardware_concurrency': random.choice([2, 4, 6, 8, 12, 16]),
             'device_memory': random.choice([4, 8, 16, 32]),
+            # JS 堆内存信息
+            'js_heap_size_limit': random.randint(2147483648, 4294967296),  # 2GB-4GB
+            'used_js_heap_size': random.randint(5000000, 50000000),       # 5MB-50MB
+            'total_js_heap_size': random.randint(7000000, 60000000),      # 7MB-60MB
+            # Window Keys
+            'window_keys': self.BASIC_WINDOW_KEYS.copy(),
         }
     
     def get_chrome_options_args(self):
@@ -243,7 +318,7 @@ class FingerprintRandomizer:
         ]
         return args
     
-    def get_canvas_noise_script(self):
+    def get_canvas_script(self):
         """获取 Canvas 指纹混淆脚本"""
         return """
         // Canvas 指纹混淆
@@ -285,7 +360,7 @@ class FingerprintRandomizer:
         })();
         """
     
-    def get_webgl_noise_script(self):
+    def get_webgl_script(self):
         """获取 WebGL 指纹混淆脚本（增强版）"""
         # 如果有配置文件，使用配置的 GPU 信息
         if self.profile:
@@ -316,7 +391,7 @@ class FingerprintRandomizer:
         }})();
         """
     
-    def get_navigator_override_script(self):
+    def get_navigator_script(self):
         """获取 Navigator 对象覆盖脚本"""
         fp = self.fingerprint
         return f"""
@@ -338,7 +413,7 @@ class FingerprintRandomizer:
         }});
         """
     
-    def get_timezone_override_script(self):
+    def get_timezone_script(self):
         """获取时区覆盖脚本"""
         return f"""
         // 覆盖时区
@@ -431,20 +506,269 @@ class FingerprintRandomizer:
         })();
         """
     
+    def get_webrtc_protection_script(self):
+        """获取 WebRTC 指纹保护脚本（防止 IP 泄露）"""
+        # 生成虚假的本地 IP 地址
+        fake_local_ip = f"192.168.{random.randint(1, 254)}.{random.randint(1, 254)}"
+        fake_public_ip = f"{random.randint(1, 254)}.{random.randint(1, 254)}.{random.randint(1, 254)}.{random.randint(1, 254)}"
+        
+        return f"""
+        // WebRTC 指纹保护（防止 IP 泄露）
+        (function() {{
+            // 1. 禁用 WebRTC 的 IP 泄露
+            const originalCreateOffer = RTCPeerConnection.prototype.createOffer;
+            const originalCreateAnswer = RTCPeerConnection.prototype.createAnswer;
+            const originalSetLocalDescription = RTCPeerConnection.prototype.setLocalDescription;
+            
+            // 生成虚假的 ICE 候选项
+            function generateFakeCandidate(type = 'host') {{
+                const candidateId = Math.random().toString(36).substr(2, 8);
+                const port = Math.floor(Math.random() * 50000) + 10000;
+                
+                if (type === 'host') {{
+                    return `candidate:${{candidateId}} 1 udp 2113937151 {fake_local_ip} ${{port}} typ host generation 0 network-cost 999`;
+                }} else if (type === 'srflx') {{
+                    return `candidate:${{candidateId}} 1 udp 1677729535 {fake_public_ip} ${{port}} typ srflx raddr 0.0.0.0 rport 0 generation 0 network-cost 999`;
+                }}
+            }}
+            
+            // 生成虚假的 SDP
+            function generateFakeSDP() {{
+                const sessionId = Date.now().toString() + Math.random().toString().substr(2, 4);
+                const iceUfrag = Math.random().toString(36).substr(2, 4);
+                const icePwd = Math.random().toString(36).substr(2, 24);
+                const fingerprint = Array.from({{length: 32}}, () => 
+                    Math.floor(Math.random() * 256).toString(16).padStart(2, '0').toUpperCase()
+                ).join(':');
+                
+                return `v=0\\r\\n` +
+                       `o=- ${{sessionId}} 2 IN IP4 127.0.0.1\\r\\n` +
+                       `s=-\\r\\n` +
+                       `t=0 0\\r\\n` +
+                       `a=group:BUNDLE 0\\r\\n` +
+                       `a=msid-semantic: WMS\\r\\n` +
+                       `m=application 9 UDP/DTLS/SCTP webrtc-datachannel\\r\\n` +
+                       `c=IN IP4 0.0.0.0\\r\\n` +
+                       `a=${{generateFakeCandidate('host')}}\\r\\n` +
+                       `a=${{generateFakeCandidate('srflx')}}\\r\\n` +
+                       `a=ice-ufrag:${{iceUfrag}}\\r\\n` +
+                       `a=ice-pwd:${{icePwd}}\\r\\n` +
+                       `a=fingerprint:sha-256 ${{fingerprint}}\\r\\n` +
+                       `a=setup:actpass\\r\\n` +
+                       `a=mid:0\\r\\n` +
+                       `a=sctp-port:5000\\r\\n` +
+                       `a=max-message-size:262144\\r\\n`;
+            }}
+            
+            // 重写 createOffer
+            RTCPeerConnection.prototype.createOffer = function() {{
+                return Promise.resolve({{
+                    type: 'offer',
+                    sdp: generateFakeSDP()
+                }});
+            }};
+            
+            // 重写 createAnswer
+            RTCPeerConnection.prototype.createAnswer = function() {{
+                return Promise.resolve({{
+                    type: 'answer',
+                    sdp: generateFakeSDP()
+                }});
+            }};
+            
+            // 2. 阻止 WebRTC 数据通道创建
+            const originalCreateDataChannel = RTCPeerConnection.prototype.createDataChannel;
+            RTCPeerConnection.prototype.createDataChannel = function() {{
+                // 返回一个虚假的数据通道对象
+                return {{
+                    label: arguments[0] || '',
+                    readyState: 'closed',
+                    bufferedAmount: 0,
+                    close: function() {{}},
+                    send: function() {{}}
+                }};
+            }};
+            
+            // 3. 阻止获取本地媒体流
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {{
+                const originalGetUserMedia = navigator.mediaDevices.getUserMedia;
+                navigator.mediaDevices.getUserMedia = function() {{
+                    return Promise.reject(new Error('Permission denied'));
+                }};
+            }}
+            
+            // 4. 阻止 WebRTC 统计信息获取
+            const originalGetStats = RTCPeerConnection.prototype.getStats;
+            RTCPeerConnection.prototype.getStats = function() {{
+                return Promise.resolve(new Map());
+            }};
+            
+            console.log('🛡️ WebRTC 指纹保护已启用');
+        }})();
+        """
+    
+    def get_js_heap_memory_script(self):
+        """获取 JS 堆内存指纹注入脚本"""
+        fp = self.fingerprint
+        return f"""
+        // JS 堆内存指纹注入
+        (function() {{
+            // 重写 performance.memory 属性
+            if (window.performance && !window.performance.memory) {{
+                Object.defineProperty(window.performance, 'memory', {{
+                    get: () => ({{
+                        jsHeapSizeLimit: {fp['js_heap_size_limit']},
+                        totalJSHeapSize: {fp['total_js_heap_size']},
+                        usedJSHeapSize: {fp['used_js_heap_size']}
+                    }}),
+                    configurable: true
+                }});
+            }} else if (window.performance && window.performance.memory) {{
+                // 如果已存在，则重写其属性
+                Object.defineProperty(window.performance.memory, 'jsHeapSizeLimit', {{
+                    get: () => {fp['js_heap_size_limit']},
+                    configurable: true
+                }});
+                Object.defineProperty(window.performance.memory, 'totalJSHeapSize', {{
+                    get: () => {fp['total_js_heap_size']},
+                    configurable: true
+                }});
+                Object.defineProperty(window.performance.memory, 'usedJSHeapSize', {{
+                    get: () => {fp['used_js_heap_size']},
+                    configurable: true
+                }});
+            }}
+            
+            console.log('💾 JS 堆内存指纹已注入');
+        }})();
+        """
+    
+    def get_window_keys_script(self):
+        """获取 Window Keys 指纹注入脚本"""
+        fp = self.fingerprint
+        window_keys_json = json.dumps(fp['window_keys'])
+        
+        return f"""
+        // Window Keys 指纹注入
+        (function() {{
+            // 存储原始的 Object.getOwnPropertyNames
+            const originalGetOwnPropertyNames = Object.getOwnPropertyNames;
+            
+            // 预定义的 window keys
+            const predefinedKeys = {window_keys_json};
+            
+            // 重写 Object.getOwnPropertyNames 当应用于 window 对象时
+            Object.getOwnPropertyNames = function(obj) {{
+                if (obj === window || obj === globalThis) {{
+                    // 返回预定义的 keys，并与实际存在的 keys 合并
+                    const realKeys = originalGetOwnPropertyNames.call(this, obj);
+                    const combinedKeys = [...new Set([...predefinedKeys, ...realKeys])];
+                    return combinedKeys.sort();
+                }}
+                return originalGetOwnPropertyNames.call(this, obj);
+            }};
+            
+            // 重写 Object.keys 当应用于 window 对象时
+            const originalObjectKeys = Object.keys;
+            Object.keys = function(obj) {{
+                if (obj === window || obj === globalThis) {{
+                    const realKeys = originalObjectKeys.call(this, obj);
+                    const combinedKeys = [...new Set([...predefinedKeys, ...realKeys])];
+                    return combinedKeys.sort();
+                }}
+                return originalObjectKeys.call(this, obj);
+            }};
+            
+            // 确保一些关键的 window 属性存在（如果不存在则创建占位符）
+            const criticalKeys = ['WebGLRenderingContext', 'AudioContext', 'RTCPeerConnection'];
+            criticalKeys.forEach(key => {{
+                if (!(key in window) && predefinedKeys.includes(key)) {{
+                    try {{
+                        // 创建一个基本的占位符对象
+                        window[key] = window[key] || function() {{}};
+                    }} catch (e) {{
+                        // 忽略错误，某些属性可能无法设置
+                    }}
+                }}
+            }});
+            
+            console.log('🔑 Window Keys 指纹已注入 (' + predefinedKeys.length + ' keys)');
+        }})();
+        """
+    
+    def get_hash_fingerprints_script(self):
+        """获取哈希指纹注入脚本"""
+        if not self.profile or 'hashes' not in self.profile:
+            return ""
+            
+        hashes = self.profile['hashes']
+        return f"""
+        // 哈希指纹注入
+        (function() {{
+            // 注入 MIME 类型哈希
+            if (navigator.mimeTypes) {{
+                Object.defineProperty(navigator.mimeTypes, 'toString', {{
+                    value: function() {{ return '[object MimeTypeArray]'; }},
+                    configurable: true
+                }});
+                
+                // 添加自定义属性用于指纹识别
+                Object.defineProperty(navigator.mimeTypes, '_fingerprintHash', {{
+                    value: '{hashes.get("mime_types_hash", "")}',
+                    configurable: false,
+                    enumerable: false
+                }});
+            }}
+            
+            // 注入错误对象哈希
+            const originalErrorToString = Error.prototype.toString;
+            Error.prototype.toString = function() {{
+                const result = originalErrorToString.call(this);
+                // 在某些情况下添加哈希标识
+                if (this._fingerprintCheck) {{
+                    return result + '#{hashes.get("errors_hash", "")}';
+                }}
+                return result;
+            }};
+            
+            // 注入原型链哈希
+            Object.defineProperty(Object.prototype, '_prototypeHash', {{
+                value: '{hashes.get("prototype_hash", "")}',
+                configurable: false,
+                enumerable: false,
+                writable: false
+            }});
+            
+            // 注入数学对象哈希
+            Object.defineProperty(Math, '_mathHash', {{
+                value: '{hashes.get("math_hash", "")}',
+                configurable: false,
+                enumerable: false,
+                writable: false
+            }});
+            
+            console.log('🔢 哈希指纹已注入');
+        }})();
+        """
+    
     def get_all_scripts(self):
         """获取所有混淆脚本（根据级别）"""
         scripts = []
         
         # basic 级别：基础功能
         if self.level in ['basic', 'balanced', 'aggressive']:
-            scripts.append(self.get_canvas_noise_script())
-            scripts.append(self.get_navigator_override_script())
-            scripts.append(self.get_timezone_override_script())
+            scripts.append(self.get_canvas_script())
+            scripts.append(self.get_navigator_script())
+            scripts.append(self.get_timezone_script())
         
-        # balanced 级别：增加 WebGL 和 Performance Timing
+        # balanced 级别：增加 WebGL、Performance Timing、WebRTC 保护和新增功能
         if self.level in ['balanced', 'aggressive']:
-            scripts.append(self.get_webgl_noise_script())
+            scripts.append(self.get_webgl_script())
             scripts.append(self.get_performance_timing_script())
+            scripts.append(self.get_webrtc_protection_script())
+            scripts.append(self.get_js_heap_memory_script())      # 新增：JS 堆内存指纹
+            scripts.append(self.get_window_keys_script())         # 新增：Window Keys 指纹
+            scripts.append(self.get_hash_fingerprints_script())   # 新增：哈希指纹
         
         # aggressive 级别：增加 Audio Context
         if self.level == 'aggressive':
@@ -467,6 +791,14 @@ class FingerprintRandomizer:
         if self.fingerprint.get('gpu_vendor'):
             print(f"     GPU 厂商: {self.fingerprint['gpu_vendor']}")
             print(f"     GPU 渲染器: {self.fingerprint['gpu_renderer'][:60]}...")
+        # 新增信息
+        if self.level in ['balanced', 'aggressive']:
+            print(f"     JS 堆内存限制: {self.fingerprint.get('js_heap_size_limit', 0) // 1024 // 1024}MB")
+            print(f"     已用 JS 堆内存: {self.fingerprint.get('used_js_heap_size', 0) // 1024 // 1024}MB")
+            print(f"     Window Keys 数量: {len(self.fingerprint.get('window_keys', []))}")
+            if self.fingerprint.get('hashes'):
+                hashes = self.fingerprint['hashes']
+                print(f"     哈希指纹: {len(hashes)} 个 (mime_types, errors, prototype, math, audio)")
     
     def validate_consistency(self) -> bool:
         """验证配置一致性"""
