@@ -370,7 +370,7 @@ jobs:
           FINGERPRINT_LEVEL=balanced
           ENHANCED_PROFILES_ENABLED=true
           STRICT_CONSISTENCY_CHECK=true
-          FINGERPRINT_DEBUG=false
+          FINGERPRINT_DEBUG=true
           EMAIL_TIMEOUT=120
           REGISTER_COUNT=1
           REGISTER_INTERVAL=5
