@@ -218,99 +218,74 @@ jobs:
           elif [[ "$PROXY_URL" == vless://* ]]; then
             echo "📡 检测到 VLESS 协议"
             
-            # 使用 Python 解析 VLESS URL
-            python3 << 'PYTHON_SCRIPT'
-import sys
-import json
-from urllib.parse import urlparse, parse_qs, unquote
-
-proxy_url = """$PROXY_URL"""
-
-# 解析 URL
-parsed = urlparse(proxy_url)
-uuid = parsed.username
-address = parsed.hostname
-port = parsed.port
-
-# 解析查询参数
-params = parse_qs(parsed.query)
-security = params.get('security', ['none'])[0]
-sni = params.get('sni', [''])[0]
-net_type = params.get('type', ['tcp'])[0]
-host = params.get('host', [''])[0]
-path = unquote(params.get('path', ['/'])[0])
-
-print(f"   服务器: {address}:{port}")
-print(f"   传输协议: {net_type}")
-print(f"   安全: {security}")
-if sni:
-    print(f"   SNI: {sni}")
-if net_type == 'ws':
-    print(f"   WebSocket Host: {host}")
-    print(f"   WebSocket Path: {path}")
-
-# 构建 streamSettings
-stream_settings = {"network": net_type}
-
-if security == "tls":
-    stream_settings["security"] = "tls"
-    stream_settings["tlsSettings"] = {
-        "serverName": sni,
-        "allowInsecure": False
-    }
-
-if net_type == "ws":
-    stream_settings["wsSettings"] = {
-        "path": path,
-        "headers": {"Host": host}
-    }
-
-# 构建完整配置
-config = {
-    "log": {"loglevel": "warning"},
-    "inbounds": [
-        {
-            "port": 10808,
-            "protocol": "socks",
-            "settings": {"auth": "noauth", "udp": True},
-            "sniffing": {"enabled": True, "destOverride": ["http", "tls"]}
-        },
-        {
-            "port": 10809,
-            "protocol": "http",
-            "settings": {}
-        }
-    ],
-    "outbounds": [
-        {
-            "protocol": "vless",
-            "settings": {
-                "vnext": [{
-                    "address": address,
-                    "port": port,
+            # 解析 VLESS URL
+            VLESS_PART=$(echo "$PROXY_URL" | sed 's/vless:\/\///')
+            UUID=$(echo "$VLESS_PART" | cut -d'@' -f1)
+            SERVER_PART=$(echo "$VLESS_PART" | cut -d'@' -f2)
+            ADDRESS=$(echo "$SERVER_PART" | cut -d':' -f1)
+            PORT=$(echo "$SERVER_PART" | cut -d':' -f2 | cut -d'?' -f1)
+            
+            # 解析查询参数
+            QUERY_STRING=$(echo "$PROXY_URL" | grep -oP '\?.*' | sed 's/^?//')
+            
+            # 提取参数
+            SECURITY=$(echo "$QUERY_STRING" | grep -oP 'security=\K[^&]+' || echo "none")
+            SNI=$(echo "$QUERY_STRING" | grep -oP 'sni=\K[^&]+' || echo "")
+            TYPE=$(echo "$QUERY_STRING" | grep -oP 'type=\K[^&]+' || echo "tcp")
+            HOST=$(echo "$QUERY_STRING" | grep -oP 'host=\K[^&]+' || echo "")
+            PATH=$(echo "$QUERY_STRING" | grep -oP 'path=\K[^&]+' || echo "/")
+            # URL 解码 path
+            PATH=$(echo "$PATH" | sed 's/%2F/\//g' | sed 's/%3F/?/g' | sed 's/%3D/=/g')
+            
+            echo "   服务器: $ADDRESS:$PORT"
+            echo "   传输协议: $TYPE"
+            echo "   安全: $SECURITY"
+            if [ -n "$SNI" ]; then
+              echo "   SNI: $SNI"
+            fi
+            if [ "$TYPE" = "ws" ]; then
+              echo "   WebSocket Host: $HOST"
+              echo "   WebSocket Path: $PATH"
+            fi
+            
+            # 构建 streamSettings
+            STREAM_SETTINGS='{"network": "'$TYPE'"'
+            
+            # 添加 TLS 配置
+            if [ "$SECURITY" = "tls" ]; then
+              STREAM_SETTINGS="$STREAM_SETTINGS"', "security": "tls", "tlsSettings": {"serverName": "'$SNI'", "allowInsecure": false}'
+            fi
+            
+            # 添加 WebSocket 配置
+            if [ "$TYPE" = "ws" ]; then
+              STREAM_SETTINGS="$STREAM_SETTINGS"', "wsSettings": {"path": "'$PATH'", "headers": {"Host": "'$HOST'"}}'
+            fi
+            
+            STREAM_SETTINGS="$STREAM_SETTINGS"'}'
+            
+            # 添加 VLESS outbound
+            jq --argjson stream "$STREAM_SETTINGS" '.outbounds = [
+              {
+                "protocol": "vless",
+                "settings": {
+                  "vnext": [{
+                    "address": "'$ADDRESS'",
+                    "port": '$PORT',
                     "users": [{
-                        "id": uuid,
-                        "encryption": "none",
-                        "flow": ""
+                      "id": "'$UUID'",
+                      "encryption": "none",
+                      "flow": ""
                     }]
-                }]
-            },
-            "streamSettings": stream_settings,
-            "tag": "proxy"
-        },
-        {
-            "protocol": "freedom",
-            "tag": "direct"
-        }
-    ]
-}
-
-# 写入配置文件
-with open('xray/config.json', 'w') as f:
-    json.dump(config, f, indent=2)
-
-print("\n✅ VLESS 配置已生成")
-PYTHON_SCRIPT
+                  }]
+                },
+                "streamSettings": $stream,
+                "tag": "proxy"
+              },
+              {
+                "protocol": "freedom",
+                "tag": "direct"
+              }
+            ]' xray/config.json > xray/config.tmp && mv xray/config.tmp xray/config.json
             
           else
             echo "❌ 不支持的代理协议"
@@ -429,7 +404,7 @@ PYTHON_SCRIPT
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget xvfb
+          sudo apt-get install -y wget xvfb sed
           
           # 完全卸载旧版本 Chrome 和 Chromium
           sudo apt-get remove -y google-chrome-stable chromium-browser chromium || true
