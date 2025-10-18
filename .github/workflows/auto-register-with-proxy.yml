@@ -301,11 +301,11 @@ jobs:
 
             with open('xray/config.json', 'w') as f:
                 json.dump(config, f, indent=2)
-            PYEOF
+          PYEOF
             
-            python3 /tmp/parse_vless.py
-            echo ""
-            echo "✅ VLESS 配置已生成"
+          python3 /tmp/parse_vless.py
+          echo ""
+          echo "✅ VLESS 配置已生成"
             
           else
             echo "❌ 不支持的代理协议"
