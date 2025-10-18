@@ -124,6 +124,13 @@ jobs:
           echo "  步骤 2: 配置 Xray 代理"
           echo "=========================================="
           
+          # 安装必要工具
+          echo "📦 安装必要工具..."
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sed > /dev/null 2>&1
+          echo "✅ 工具安装完成"
+          echo ""
+          
           # 下载 Xray 核心
           echo "📥 下载 Xray 核心..."
           XRAY_VERSION="1.8.23"
