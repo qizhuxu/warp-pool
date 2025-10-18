@@ -218,18 +218,33 @@ jobs:
           elif [[ "$PROXY_URL" == vless://* ]]; then
             echo "📡 检测到 VLESS 协议"
             
-            # 简单解析 VLESS URL
+            # 解析 VLESS URL
             VLESS_PART="${PROXY_URL#vless://}"
             UUID="${VLESS_PART%%@*}"
             SERVER_PART="${VLESS_PART#*@}"
             ADDRESS="${SERVER_PART%%:*}"
             PORT_AND_PARAMS="${SERVER_PART#*:}"
             PORT="${PORT_AND_PARAMS%%\?*}"
+            PARAMS="${PORT_AND_PARAMS#*\?}"
+            
+            # 提取参数（使用 grep 和 cut）
+            SNI=$(echo "$PARAMS" | tr '&' '\n' | grep '^sni=' | cut -d'=' -f2)
+            WS_HOST=$(echo "$PARAMS" | tr '&' '\n' | grep '^host=' | cut -d'=' -f2)
+            WS_PATH=$(echo "$PARAMS" | tr '&' '\n' | grep '^path=' | cut -d'=' -f2)
+            # URL 解码 path
+            WS_PATH=$(echo "$WS_PATH" | python3 -c "import sys; from urllib.parse import unquote; print(unquote(sys.stdin.read().strip()))")
+            
+            # 使用默认值
+            SNI=${SNI:-$ADDRESS}
+            WS_HOST=${WS_HOST:-$ADDRESS}
+            WS_PATH=${WS_PATH:-/}
             
             echo "   服务器: $ADDRESS:$PORT"
-            echo "   UUID: ${UUID:0:8}..."
+            echo "   SNI: $SNI"
+            echo "   WebSocket Host: $WS_HOST"
+            echo "   WebSocket Path: $WS_PATH"
             
-            # 添加 VLESS outbound（简化配置）
+            # 添加 VLESS outbound
             jq '.outbounds = [
               {
                 "protocol": "vless",
@@ -247,13 +262,13 @@ jobs:
                   "network": "ws",
                   "security": "tls",
                   "tlsSettings": {
-                    "serverName": "'$ADDRESS'",
+                    "serverName": "'$SNI'",
                     "allowInsecure": false
                   },
                   "wsSettings": {
-                    "path": "/",
+                    "path": "'$WS_PATH'",
                     "headers": {
-                      "Host": "'$ADDRESS'"
+                      "Host": "'$WS_HOST'"
                     }
                   }
                 },
@@ -265,7 +280,7 @@ jobs:
               }
             ]' xray/config.json > xray/config.tmp && mv xray/config.tmp xray/config.json
             
-            echo "✅ VLESS 配置已生成（WebSocket+TLS）"
+            echo "✅ VLESS 配置已生成"
             
           else
             echo "❌ 不支持的代理协议"
