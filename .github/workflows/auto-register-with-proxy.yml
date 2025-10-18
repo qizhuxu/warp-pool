@@ -1,0 +1,677 @@
+name: Auto Register Warp Account (With Proxy)
+
+# ============================================
+# 📝 配置区域 - 修改默认值请在此处修改
+# ============================================
+env:
+  DEFAULT_REGISTER_COUNT: 6      # 默认注册账号数量
+  DEFAULT_MAX_FAILS: 6            # 默认最大连续失败次数
+
+on:
+  schedule:
+    - cron: '0 */1 * * *'  # 每1小时执行一次
+  workflow_dispatch:  # 允许手动触发
+    inputs:
+      register_count:
+        description: '注册账号数量'
+        required: false
+        default: '6'
+        type: string
+      max_fails:
+        description: '最大连续失败次数'
+        required: false
+        default: '6'
+        type: string
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check Secrets Configuration and Service Health
+        run: |
+          echo "=========================================="
+          echo "  步骤 1: 检查 Secrets 配置"
+          echo "=========================================="
+          
+          # 检查 Firebase API Key（必需）
+          if [ -z "${{ secrets.FIREBASE_API_KEY }}" ]; then
+            echo "❌ FIREBASE_API_KEY 未配置"
+            echo "请在仓库 Settings → Secrets and variables → Actions 中添加 FIREBASE_API_KEY"
+            exit 1
+          else
+            echo "✅ FIREBASE_API_KEY 已配置"
+          fi
+          
+          # 检查代理配置（必需）
+          if [ -z "${{ secrets.XRAY_PROXY_URL }}" ]; then
+            echo "❌ XRAY_PROXY_URL 未配置"
+            echo "请在仓库 Settings → Secrets and variables → Actions 中添加 XRAY_PROXY_URL"
+            echo "格式示例: vmess://base64encodedconfig 或 vless://config"
+            exit 1
+          else
+            echo "✅ XRAY_PROXY_URL 已配置"
+          fi
+          
+          # 检查邮箱服务配置
+          HAS_MOEMAIL=false
+          HAS_SKYMAIL=false
+          MOEMAIL_URL="${{ secrets.MOEMAIL_URL }}"
+          SKYMAIL_URL="${{ secrets.SKYMAIL_URL }}"
+          
+          if [ -n "${{ secrets.MOEMAIL_API_KEY }}" ]; then
+            HAS_MOEMAIL=true
+            echo "✅ MoeMail 已配置"
+            
+            # 设置默认 URL
+            if [ -z "$MOEMAIL_URL" ]; then
+              MOEMAIL_URL="https://email.959585.xyz"
+              echo "   ℹ️  MOEMAIL_URL 未配置，将使用默认值: $MOEMAIL_URL"
+            else
+              echo "   ℹ️  MOEMAIL_URL: $MOEMAIL_URL"
+            fi
+          fi
+          
+          if [ -n "${{ secrets.SKYMAIL_TOKEN }}" ]; then
+            HAS_SKYMAIL=true
+            echo "✅ Skymail 已配置"
+            
+            if [ -z "$SKYMAIL_URL" ]; then
+              echo "   ⚠️  SKYMAIL_URL 未配置，Skymail 可能无法使用"
+            else
+              echo "   ℹ️  SKYMAIL_URL: $SKYMAIL_URL"
+            fi
+            
+            if [ -n "${{ secrets.SKYMAIL_DOMAIN }}" ]; then
+              echo "   ℹ️  SKYMAIL_DOMAIN: ${{ secrets.SKYMAIL_DOMAIN }}"
+            else
+              echo "   ℹ️  SKYMAIL_DOMAIN 未配置，将使用服务器默认域名"
+            fi
+          fi
+          
+          # 至少需要一个邮箱服务
+          if [ "$HAS_MOEMAIL" = false ] && [ "$HAS_SKYMAIL" = false ]; then
+            echo ""
+            echo "❌ 至少需要配置一个邮箱服务"
+            echo ""
+            echo "请配置以下 Secrets 之一："
+            echo "  - MOEMAIL_API_KEY (MoeMail 服务)"
+            echo "  - SKYMAIL_TOKEN (Skymail 服务)"
+            echo ""
+            echo "推荐配置两个服务以实现自动故障转移"
+            exit 1
+          fi
+          
+          echo ""
+          echo "=========================================="
+          echo "  配置检查完成"
+          echo "=========================================="
+      
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Setup Xray Proxy
+        id: proxy
+        run: |
+          echo "=========================================="
+          echo "  步骤 2: 配置 Xray 代理"
+          echo "=========================================="
+          
+          # 下载 Xray 核心
+          echo "📥 下载 Xray 核心..."
+          XRAY_VERSION="1.8.23"
+          wget -q "https://github.com/XTLS/Xray-core/releases/download/v25.10.15/Xray-linux-64.zip"
+          unzip -q Xray-linux-64.zip -d xray
+          chmod +x xray/xray
+          
+          echo "✅ Xray 核心下载完成"
+          ./xray/xray version
+          
+          # 解析代理 URL
+          echo ""
+          echo "🔧 解析代理配置..."
+          PROXY_URL="${{ secrets.XRAY_PROXY_URL }}"
+          
+          # 创建 Xray 配置文件
+          cat > xray/config.json << 'EOF'
+          {
+            "log": {
+              "loglevel": "warning"
+            },
+            "inbounds": [
+              {
+                "port": 10808,
+                "protocol": "socks",
+                "settings": {
+                  "auth": "noauth",
+                  "udp": true
+                },
+                "sniffing": {
+                  "enabled": true,
+                  "destOverride": ["http", "tls"]
+                }
+              },
+              {
+                "port": 10809,
+                "protocol": "http",
+                "settings": {}
+              }
+            ],
+            "outbounds": [
+              {
+                "protocol": "freedom",
+                "tag": "direct"
+              }
+            ]
+          }
+          EOF
+          
+          # 根据代理类型生成配置
+          if [[ "$PROXY_URL" == vmess://* ]]; then
+            echo "📡 检测到 VMess 协议"
+            # 解码 VMess URL
+            VMESS_JSON=$(echo "$PROXY_URL" | sed 's/vmess:\/\///' | base64 -d)
+            
+            # 提取配置信息
+            ADDRESS=$(echo "$VMESS_JSON" | jq -r '.add')
+            PORT=$(echo "$VMESS_JSON" | jq -r '.port')
+            UUID=$(echo "$VMESS_JSON" | jq -r '.id')
+            ALTERID=$(echo "$VMESS_JSON" | jq -r '.aid // 0')
+            NETWORK=$(echo "$VMESS_JSON" | jq -r '.net // "tcp"')
+            
+            echo "   服务器: $ADDRESS:$PORT"
+            echo "   网络类型: $NETWORK"
+            
+            # 添加 VMess outbound
+            jq '.outbounds = [
+              {
+                "protocol": "vmess",
+                "settings": {
+                  "vnext": [{
+                    "address": "'$ADDRESS'",
+                    "port": '$PORT',
+                    "users": [{
+                      "id": "'$UUID'",
+                      "alterId": '$ALTERID',
+                      "security": "auto"
+                    }]
+                  }]
+                },
+                "streamSettings": {
+                  "network": "'$NETWORK'"
+                },
+                "tag": "proxy"
+              },
+              {
+                "protocol": "freedom",
+                "tag": "direct"
+              }
+            ]' xray/config.json > xray/config.tmp && mv xray/config.tmp xray/config.json
+            
+          elif [[ "$PROXY_URL" == vless://* ]]; then
+            echo "📡 检测到 VLESS 协议"
+            # 简单解析 VLESS URL
+            VLESS_PART=$(echo "$PROXY_URL" | sed 's/vless:\/\///')
+            UUID=$(echo "$VLESS_PART" | cut -d'@' -f1)
+            SERVER_PART=$(echo "$VLESS_PART" | cut -d'@' -f2)
+            ADDRESS=$(echo "$SERVER_PART" | cut -d':' -f1)
+            PORT=$(echo "$SERVER_PART" | cut -d':' -f2 | cut -d'?' -f1)
+            
+            echo "   服务器: $ADDRESS:$PORT"
+            
+            # 添加 VLESS outbound
+            jq '.outbounds = [
+              {
+                "protocol": "vless",
+                "settings": {
+                  "vnext": [{
+                    "address": "'$ADDRESS'",
+                    "port": '$PORT',
+                    "users": [{
+                      "id": "'$UUID'",
+                      "encryption": "none"
+                    }]
+                  }]
+                },
+                "tag": "proxy"
+              },
+              {
+                "protocol": "freedom",
+                "tag": "direct"
+              }
+            ]' xray/config.json > xray/config.tmp && mv xray/config.tmp xray/config.json
+            
+          else
+            echo "❌ 不支持的代理协议"
+            echo "支持的协议: vmess://, vless://"
+            exit 1
+          fi
+          
+          # 启动 Xray
+          echo ""
+          echo "🚀 启动 Xray 代理..."
+          ./xray/xray run -c xray/config.json > xray.log 2>&1 &
+          XRAY_PID=$!
+          echo "xray_pid=$XRAY_PID" >> $GITHUB_OUTPUT
+          
+          # 等待代理启动
+          sleep 3
+          
+          # 验证代理是否正常运行
+          if ps -p $XRAY_PID > /dev/null; then
+            echo "✅ Xray 代理已启动 (PID: $XRAY_PID)"
+          else
+            echo "❌ Xray 代理启动失败"
+            cat xray.log
+            exit 1
+          fi
+          
+          # 测试代理连接
+          echo ""
+          echo "🔍 测试代理连接..."
+          if curl -x socks5://127.0.0.1:10808 -s --max-time 10 https://www.google.com > /dev/null 2>&1; then
+            echo "✅ 代理连接测试成功"
+            echo "proxy_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  代理连接测试失败，但将继续执行"
+            echo "proxy_status=warning" >> $GITHUB_OUTPUT
+          fi
+          
+          # 设置环境变量
+          echo "HTTP_PROXY=http://127.0.0.1:10809" >> $GITHUB_ENV
+          echo "HTTPS_PROXY=http://127.0.0.1:10809" >> $GITHUB_ENV
+          echo "ALL_PROXY=socks5://127.0.0.1:10808" >> $GITHUB_ENV
+          echo "NO_PROXY=localhost,127.0.0.1,::1" >> $GITHUB_ENV
+          
+          echo ""
+          echo "✅ 代理配置完成"
+          echo "   SOCKS5: 127.0.0.1:10808"
+          echo "   HTTP: 127.0.0.1:10809"
+          echo "=========================================="
+      
+      - name: Randomize Machine ID
+        run: |
+          echo "=== 修改机器码 ==="
+          
+          # 1. 生成随机的 machine-id（使用 openssl 更可靠）
+          RANDOM_MACHINE_ID=$(openssl rand -hex 16)
+          echo "新的 machine-id: $RANDOM_MACHINE_ID"
+          
+          # 修改 /etc/machine-id
+          echo "$RANDOM_MACHINE_ID" | sudo tee /etc/machine-id > /dev/null
+          
+          # 修改 /var/lib/dbus/machine-id（如果存在）
+          if [ -f /var/lib/dbus/machine-id ]; then
+            echo "$RANDOM_MACHINE_ID" | sudo tee /var/lib/dbus/machine-id > /dev/null
+          fi
+          
+          # 2. 生成随机的 hostname
+          RANDOM_SUFFIX=$(openssl rand -hex 4)
+          RANDOM_HOSTNAME="gh-runner-${RANDOM_SUFFIX}"
+          echo "新的 hostname: $RANDOM_HOSTNAME"
+          sudo hostname "$RANDOM_HOSTNAME"
+          echo "$RANDOM_HOSTNAME" | sudo tee /etc/hostname > /dev/null
+          
+          # 3. 清理可能缓存机器信息的文件
+          sudo rm -rf /var/lib/systemd/random-seed 2>/dev/null || true
+          rm -rf ~/.cache/* 2>/dev/null || true
+          
+          # 验证修改
+          echo "=== 验证机器码 ==="
+          echo "machine-id: $(cat /etc/machine-id)"
+          echo "hostname: $(hostname)"
+          
+          echo "✅ 机器码修改完成"
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget xvfb
+          
+          # 完全卸载旧版本 Chrome 和 Chromium
+          sudo apt-get remove -y google-chrome-stable chromium-browser chromium || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          
+          # 清理可能残留的 Chrome 文件
+          sudo rm -rf /opt/google/chrome || true
+          sudo rm -rf ~/.config/google-chrome || true
+          
+          # 安装最新版 Chrome
+          wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo dpkg -i google-chrome-stable_current_amd64.deb || sudo apt-get -f install -y
+          
+          # 验证安装
+          echo "=== Chrome 安装信息 ==="
+          google-chrome --version
+      
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          
+          # 清理 ChromeDriver 缓存
+          rm -rf ~/.undetected_chromedriver
+          rm -rf /tmp/.com.google.Chrome.*
+      
+      - name: Download previous accounts
+        id: download
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE_TAG=$(date -u '+%Y-%m-%d')
+          echo "date_tag=$DATE_TAG" >> $GITHUB_OUTPUT
+          
+          # 尝试下载今天的 all_accounts.json
+          if gh release view "$DATE_TAG" >/dev/null 2>&1; then
+            echo "📥 发现今天的 release，下载现有账号数据..."
+            
+            # 下载并解压
+            gh release download "$DATE_TAG" -p "all_accounts.json" 2>/dev/null || true
+            
+            if [ -f "all_accounts.json" ]; then
+              # 创建目录并移动文件
+              mkdir -p "accounts/$DATE_TAG"
+              mv all_accounts.json "accounts/$DATE_TAG/"
+              
+              OLD_COUNT=$(jq '. | length' "accounts/$DATE_TAG/all_accounts.json")
+              echo "📊 已下载现有账号: $OLD_COUNT 个"
+              echo "old_count=$OLD_COUNT" >> $GITHUB_OUTPUT
+            else
+              echo "ℹ️  今天的 release 中没有 all_accounts.json"
+              echo "old_count=0" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "ℹ️  今天还没有 release，从零开始"
+            echo "old_count=0" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Configure environment
+        run: |
+          # 检测配置了哪些邮箱服务
+          HAS_MOEMAIL=false
+          HAS_SKYMAIL=false
+          
+          if [ -n "${{ secrets.MOEMAIL_API_KEY }}" ]; then
+            HAS_MOEMAIL=true
+            echo "✅ 检测到 MoeMail 配置"
+          fi
+          
+          if [ -n "${{ secrets.SKYMAIL_TOKEN }}" ]; then
+            HAS_SKYMAIL=true
+            echo "✅ 检测到 Skymail 配置"
+          fi
+          
+          # 至少需要一个邮箱服务
+          if [ "$HAS_MOEMAIL" = false ] && [ "$HAS_SKYMAIL" = false ]; then
+            echo "❌ 至少需要配置一个邮箱服务（MOEMAIL_API_KEY 或 SKYMAIL_TOKEN）"
+            exit 1
+          fi
+          
+          # 确定 EMAIL_SERVICE 模式
+          if [ "$HAS_MOEMAIL" = true ] && [ "$HAS_SKYMAIL" = true ]; then
+            EMAIL_SERVICE="auto"
+            echo "🎲 两个邮箱服务都已配置，使用 auto 模式（自动选择 + 故障转移）"
+          elif [ "$HAS_MOEMAIL" = true ]; then
+            EMAIL_SERVICE="moemail"
+            echo "📧 使用 MoeMail 服务"
+          else
+            EMAIL_SERVICE="skymail"
+            echo "📧 使用 Skymail 服务"
+          fi
+          
+          # 验证 Firebase API Key
+          if [ -z "${{ secrets.FIREBASE_API_KEY }}" ]; then
+            echo "❌ FIREBASE_API_KEY 未配置"
+            exit 1
+          fi
+          
+          # 创建 .env 文件
+          cat > .env << EOF
+          EMAIL_SERVICE=$EMAIL_SERVICE
+          MOEMAIL_URL=${{ secrets.MOEMAIL_URL || 'https://email.959585.xyz' }}
+          MOEMAIL_API_KEY=${{ secrets.MOEMAIL_API_KEY }}
+          SKYMAIL_URL=${{ secrets.SKYMAIL_URL || '' }}
+          SKYMAIL_TOKEN=${{ secrets.SKYMAIL_TOKEN || '' }}
+          SKYMAIL_DOMAIN=${{ secrets.SKYMAIL_DOMAIN || '' }}
+          SKYMAIL_WILDCARD=${{ secrets.SKYMAIL_WILDCARD || 'false' }}
+          FIREBASE_API_KEY=${{ secrets.FIREBASE_API_KEY }}
+          WARP_LOGIN_URL=https://app.warp.dev/referral/EWP6QD
+          HEADLESS=true
+          FINGERPRINT_RANDOMIZE=true
+          FINGERPRINT_LEVEL=balanced
+          ENHANCED_PROFILES_ENABLED=true
+          STRICT_CONSISTENCY_CHECK=true
+          FINGERPRINT_DEBUG=false
+          EMAIL_TIMEOUT=120
+          REGISTER_COUNT=1
+          REGISTER_INTERVAL=5
+          EOF
+          
+          echo "✅ 环境配置完成"
+      
+      - name: Batch registration
+        id: register
+        continue-on-error: true
+        run: |
+          # 创建必要目录
+          mkdir -p accounts debug
+          
+          # 显示环境信息
+          echo "=== 环境信息 ==="
+          google-chrome --version
+          python --version
+          echo "代理状态: ${{ steps.proxy.outputs.proxy_status }}"
+          
+          # 验证代理是否仍在运行
+          if ps -p ${{ steps.proxy.outputs.xray_pid }} > /dev/null; then
+            echo "✅ Xray 代理运行正常"
+          else
+            echo "⚠️  Xray 代理已停止，尝试重启..."
+            ./xray/xray run -c xray/config.json > xray.log 2>&1 &
+            sleep 2
+          fi
+          
+          # 获取旧账号数
+          OLD_COUNT="${{ steps.download.outputs.old_count }}"
+          echo "📊 已有账号数: $OLD_COUNT"
+          
+          # 获取注册参数（手动触发时可自定义，定时任务使用环境变量默认值）
+          if [ -n "${{ github.event.inputs.register_count }}" ]; then
+            REGISTER_COUNT="${{ github.event.inputs.register_count }}"
+          else
+            REGISTER_COUNT="${{ env.DEFAULT_REGISTER_COUNT }}"
+          fi
+          
+          if [ -n "${{ github.event.inputs.max_fails }}" ]; then
+            MAX_FAILS="${{ github.event.inputs.max_fails }}"
+          else
+            MAX_FAILS="${{ env.DEFAULT_MAX_FAILS }}"
+          fi
+          
+          echo "📝 注册参数："
+          echo "  - 注册数量: $REGISTER_COUNT"
+          echo "  - 最大连续失败次数: $MAX_FAILS"
+          echo "  - 代理模式: Xray (SOCKS5 + HTTP)"
+          
+          # 使用批量注册脚本
+          echo "🚀 开始批量注册（目标增加 $REGISTER_COUNT 个账号）..."
+          xvfb-run -a python batch_register.py --add "$REGISTER_COUNT" --headless true --max-fails "$MAX_FAILS" 2>&1 | tee registration.log
+          
+          # 保存退出码
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          # 检查 all_accounts.json 是否存在
+          DATE_TAG="${{ steps.download.outputs.date_tag }}"
+          ALL_ACCOUNTS_FILE="accounts/$DATE_TAG/all_accounts.json"
+          
+          if [ -f "$ALL_ACCOUNTS_FILE" ]; then
+            # 统计总账号数和新增数
+            TOTAL_COUNT=$(jq '. | length' "$ALL_ACCOUNTS_FILE")
+            ADDED_COUNT=$((TOTAL_COUNT - OLD_COUNT))
+            
+            # 计算成功率
+            if [ $REGISTER_COUNT -gt 0 ]; then
+              SUCCESS_RATE=$(awk "BEGIN {printf \"%.1f\", ($ADDED_COUNT / $REGISTER_COUNT) * 100}")
+            else
+              SUCCESS_RATE="0.0"
+            fi
+            
+            echo "📊 新增账号数: $ADDED_COUNT"
+            echo "📊 总账号数: $TOTAL_COUNT"
+            echo "📊 成功率: ${SUCCESS_RATE}%"
+            echo "added_count=$ADDED_COUNT" >> $GITHUB_OUTPUT
+            echo "total_count=$TOTAL_COUNT" >> $GITHUB_OUTPUT
+            echo "success_rate=$SUCCESS_RATE" >> $GITHUB_OUTPUT
+            
+            if [ $ADDED_COUNT -gt 0 ]; then
+              echo "account_created=true" >> $GITHUB_OUTPUT
+              echo "✅ 批量注册完成，新增 $ADDED_COUNT 个账号（成功率: ${SUCCESS_RATE}%）"
+            else
+              echo "account_created=false" >> $GITHUB_OUTPUT
+              echo "⚠️ 未成功注册新账号"
+            fi
+          else
+            echo "account_created=false" >> $GITHUB_OUTPUT
+            echo "added_count=0" >> $GITHUB_OUTPUT
+            echo "total_count=$OLD_COUNT" >> $GITHUB_OUTPUT
+            echo "success_rate=0.0" >> $GITHUB_OUTPUT
+            echo "⚠️ 未找到 all_accounts.json 文件"
+          fi
+      
+      - name: Prepare release data
+        if: steps.register.outputs.account_created == 'true'
+        id: prepare
+        run: |
+          DATE_TAG="${{ steps.download.outputs.date_tag }}"
+          ALL_ACCOUNTS_FILE="accounts/$DATE_TAG/all_accounts.json"
+          
+          # 确保文件存在
+          if [ ! -f "$ALL_ACCOUNTS_FILE" ]; then
+            echo "❌ all_accounts.json 不存在"
+            exit 1
+          fi
+          
+          # 复制到根目录方便上传
+          cp "$ALL_ACCOUNTS_FILE" ./all_accounts.json
+          echo "✅ 已准备 all_accounts.json"
+          
+          # 生成发布说明
+          ADDED_COUNT="${{ steps.register.outputs.added_count }}"
+          TOTAL_COUNT="${{ steps.register.outputs.total_count }}"
+          OLD_COUNT="${{ steps.download.outputs.old_count }}"
+          SUCCESS_RATE="${{ steps.register.outputs.success_rate }}"
+          
+          cat > release-notes.md << EOF
+          # 📅 $(date -u '+%Y-%m-%d') 账号数据 (With Proxy)
+          
+          ## 📊 统计信息
+          - ➕ 本次新增: **${ADDED_COUNT}** 个账号
+          - 📦 今日总计: **${TOTAL_COUNT}** 个账号
+          - 📋 之前已有: **${OLD_COUNT}** 个账号
+          - 📈 成功率: **${SUCCESS_RATE}%**
+          - 🌐 代理模式: **Xray (SOCKS5 + HTTP)**
+          - ⏰ 更新时间: $(date -u '+%Y-%m-%d %H:%M:%S') UTC
+          
+          ## 📥 下载说明
+          下载 \`all_accounts.json\` 文件即可获取今日所有账号数据（累计）。
+          
+          ## 🔗 相关链接
+          - [查看工作流运行](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - [查看所有发布](https://github.com/${{ github.repository }}/releases)
+          
+          ---
+          🤖 由 GitHub Actions 自动生成 | 每小时自动更新 | 使用 Xray 代理
+          EOF
+          
+          echo "✅ 发布说明已生成"
+      
+      - name: Create or update daily release
+        if: steps.register.outputs.account_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATE_TAG="${{ steps.download.outputs.date_tag }}"
+          
+          # 检查今天的 release 是否已存在
+          if gh release view "$DATE_TAG" >/dev/null 2>&1; then
+            echo "📝 更新现有 release: $DATE_TAG"
+            
+            # 删除旧的 all_accounts.json
+            gh release delete-asset "$DATE_TAG" "all_accounts.json" --yes 2>/dev/null || true
+            
+            # 上传新的 all_accounts.json
+            gh release upload "$DATE_TAG" "all_accounts.json" --clobber
+            
+            # 更新 release 说明
+            gh release edit "$DATE_TAG" --notes-file release-notes.md
+            
+            echo "✅ Release 已更新（累计 ${{ steps.register.outputs.total_count }} 个账号，成功率 ${{ steps.register.outputs.success_rate }}%）"
+          else
+            echo "🆕 创建新 release: $DATE_TAG"
+            
+            # 创建新 release
+            gh release create "$DATE_TAG" \
+              "all_accounts.json" \
+              --title "📅 Accounts - $DATE_TAG (Proxy)" \
+              --notes-file release-notes.md
+            
+            echo "✅ Release 已创建"
+          fi
+      
+      - name: Cleanup old releases
+        if: steps.register.outputs.account_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🧹 清理 7 天前的 releases..."
+          
+          # 计算 7 天前的日期
+          CUTOFF_DATE=$(date -u -d '7 days ago' '+%Y-%m-%d' 2>/dev/null || date -u -v-7d '+%Y-%m-%d')
+          echo "清理日期阈值: $CUTOFF_DATE"
+          
+          # 获取所有 release 标签
+          gh release list --limit 100 | while read -r line; do
+            TAG=$(echo "$line" | awk '{print $1}')
+            
+            # 检查标签是否是日期格式 (YYYY-MM-DD)
+            if [[ "$TAG" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+              # 比较日期
+              if [[ "$TAG" < "$CUTOFF_DATE" ]]; then
+                echo "🗑️  删除旧 release: $TAG"
+                gh release delete "$TAG" --yes --cleanup-tag
+              fi
+            fi
+          done
+          
+          echo "✅ 清理完成"
+      
+      - name: Cleanup Xray
+        if: always()
+        run: |
+          echo "🧹 清理 Xray 进程..."
+          if [ -n "${{ steps.proxy.outputs.xray_pid }}" ]; then
+            kill ${{ steps.proxy.outputs.xray_pid }} 2>/dev/null || true
+            echo "✅ Xray 进程已停止"
+          fi
+      
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-logs-proxy-${{ github.run_number }}
+          path: |
+            registration.log
+            xray.log
+            debug/*.png
+          retention-days: 7
+          if-no-files-found: ignore
